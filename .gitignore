@@ -1,0 +1,5 @@
+build/*
+
+# Linter
+.cache/*
+compile_commands.json
