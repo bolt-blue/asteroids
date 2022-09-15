@@ -2,12 +2,18 @@
 #ifndef X11_PO_WINDOW_H
 #define X11_PO_WINDOW_H
 
+#include <stdint.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 
 struct po_window {
+    uint16_t width;
+    uint16_t height;
+
+    xcb_window_t id;
+
     xcb_connection_t *connection;
-    // TODO: Do we really need to store the following?
+    // TODO: Do we really need to store setup?
     const xcb_setup_t *setup;
     const xcb_screen_t *screen;
 

@@ -19,10 +19,12 @@ all: test compdb
 
 $(obj):
 
-tests = $(buildtestdir)/window_init
+tests = $(buildtestdir)/window_init $(buildtestdir)/draw_to_surface
 test: $(tests)
 
-$(tests): $(wildcard $(srcdir)/*.[ch]) | $(builddir)
+# Currently any change to any source results in rebulding all tests
+$(tests): $(wildcard $(testdir)/*.[ch]) $(wildcard $(srcdir)/*.[ch]) | $(builddir)
+	@echo "== Building test: $(notdir $@)"
 	$(CC) $(CFLAGS) $(LDFLAGS) $(testdir)/$(notdir $@).c -o $@
 
 clean:

@@ -13,7 +13,7 @@
 /* ========================================================================== */
 
 po_window
-window_init(size_t width, size_t height)
+window_init(uint16_t width, uint16_t height)
 {
     po_window window = {0};
 
@@ -24,8 +24,8 @@ window_init(size_t width, size_t height)
     const xcb_setup_t *setup = xcb_get_setup(window.connection);
     window.screen = xcb_setup_roots_iterator(setup).data;
 
-    uint16_t window_width  = width;
-    uint16_t window_height = height;
+    window.width  = width;
+    window.height = height;
 
     // Define required attributes
     // WARNING: The order of the values needs to match the order of their
@@ -48,20 +48,20 @@ window_init(size_t width, size_t height)
     window.keysyms = xcb_key_symbols_alloc(window.connection);
 
     // Set up the actual window
-    xcb_window_t window_id = xcb_generate_id(window.connection);
+    window.id = xcb_generate_id(window.connection);
     xcb_create_window(window.connection,
             XCB_COPY_FROM_PARENT,                   /* depth (same as root) */
-            window_id,                              /* window id            */
+            window.id,                              /* window id            */
             window.screen->root,                    /* parent window        */
             0, 0,                                   /* x, y (ignored by WM) */
-            window_width, window_height,            /* width, height        */
+            window.width, window.height,            /* width, height        */
             10,                                     /* border_width         */
             XCB_WINDOW_CLASS_INPUT_OUTPUT,          /* class                */
             window.screen->root_visual,             /* visual               */
             masks, mask_values);                    /* masks                */
 
     // Draw the window
-    xcb_map_window(window.connection, window_id);
+    xcb_map_window(window.connection, window.id);
     xcb_flush(window.connection);
 
     return window;
@@ -113,6 +113,7 @@ po_key_pressed(po_window *window)
         } break;
         }
         // Avoid memory leak
+        // TODO: Can we do any better than this?
         free(event);
     }
 

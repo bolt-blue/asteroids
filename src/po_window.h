@@ -2,7 +2,7 @@
 #ifndef PO_WINDOW_H
 #define PO_WINDOW_H
 
-#include <stddef.h>  // size_t, etc
+#include <stdint.h>
 
 /* ========================================================================== */
 
@@ -19,7 +19,7 @@ enum po_key {
 
 // The following function prototypes must be defined by each platform layer
 
-struct po_window window_init(size_t width, size_t height);
+struct po_window window_init(uint16_t width, uint16_t height);
 void window_destroy(struct po_window *window);
 
 enum po_key po_key_pressed(struct po_window *window);
