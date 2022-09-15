@@ -17,7 +17,7 @@
 
 int main(void)
 {
-    po_window window = window_init(1080, 720);
+    po_window window = po_window_init(1080, 720);
 
     uint8_t done = 0;
     struct timespec pause = {.tv_nsec = PULSE};
@@ -32,8 +32,7 @@ int main(void)
     }
 
     // Clean up
-    xcb_key_symbols_free(window.keysyms);
-    window_destroy(&window);
+    po_window_destroy(&window);
 
     return 0;
 }

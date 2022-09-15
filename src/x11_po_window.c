@@ -12,8 +12,18 @@
 
 /* ========================================================================== */
 
+/*
+ * Create and initialise a window
+ *
+ * In this context and window is mainly a means to having a plain old drawing
+ * surface.
+ *
+ * At present the surface is automatically created and matches the requested
+ * dimensions for the window. This may or may not remain as the default case.
+ *
+ */
 po_window
-window_init(uint16_t width, uint16_t height)
+po_window_init(uint16_t width, uint16_t height)
 {
     po_window window = {0};
 
@@ -47,7 +57,7 @@ window_init(uint16_t width, uint16_t height)
     // the documentation.
     window.keysyms = xcb_key_symbols_alloc(window.connection);
 
-    // Set up the actual window
+    // Create window
     window.id = xcb_generate_id(window.connection);
     xcb_create_window(window.connection,
             XCB_COPY_FROM_PARENT,                   /* depth (same as root) */
@@ -60,6 +70,29 @@ window_init(uint16_t width, uint16_t height)
             window.screen->root_visual,             /* visual               */
             masks, mask_values);                    /* masks                */
 
+    // Create surface (pixmap)
+    window.surface = (po_surface){.id = xcb_generate_id(window.connection),
+            .width = window.width, .height = window.height};
+
+    window.surface.data = malloc(window.surface.width * window.surface.height *
+            sizeof(*window.surface.data));
+
+    if (!window.surface.data) {
+        // TODO: Communicate the error source to the caller
+        po_window_destroy(&window);
+        return (po_window){0};
+    }
+
+    // NOTE: Currently we're blitting directly to the window
+    // See TODO in draw_surface()
+    xcb_create_pixmap(window.connection, window.screen->root_depth,
+            window.surface.id, window.id,
+            window.surface.width, window.surface.height);
+
+    // Create graphics context
+    window.surface.gc = xcb_generate_id(window.connection);
+    xcb_create_gc(window.connection, window.surface.gc, window.surface.id, 0, NULL);
+
     // Draw the window
     xcb_map_window(window.connection, window.id);
     xcb_flush(window.connection);
@@ -68,7 +101,7 @@ window_init(uint16_t width, uint16_t height)
 }
 
 void
-window_destroy(po_window *window)
+po_window_destroy(po_window *window)
 {
     xcb_disconnect(window->connection);
     window->connection = NULL;
@@ -77,6 +110,12 @@ window_destroy(po_window *window)
     window->setup = NULL;
     // can't find in the docs, but we presume the same is true for screen
     window->screen = NULL;
+
+    xcb_key_symbols_free(window->keysyms);
+    window->keysyms = NULL;
+
+    free(window->surface.data);
+    window->surface.data = NULL;
 }
 
 // TODO: Need to refactor this ASAP to do proper event handling
@@ -118,4 +157,25 @@ po_key_pressed(po_window *window)
     }
 
     return key;
+}
+
+void
+po_render_surface(po_window *window)
+{
+    po_surface *surface = &window->surface;
+    // Write from our surface buffer directly to the window
+    // TODO: First write to our surface pixmap - double buffering
+    xcb_put_image(window->connection, XCB_IMAGE_FORMAT_Z_PIXMAP,
+            window->id, surface->gc, surface->width, surface->height,
+            0, 0, 0, window->screen->root_depth,
+            surface->width * surface->height * sizeof(*surface->data),
+            (uint8_t *)(surface->data));
+
+#if 0
+    // Copy from the pixmap to the window
+    xcb_copy_area(window->connection,
+            surface->id, window->id, surface->gc,
+            0, 0, 0, 0, surface->width, surface->height);
+#endif
+    xcb_flush(window->connection);
 }

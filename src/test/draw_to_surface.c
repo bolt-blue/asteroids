@@ -8,6 +8,7 @@
 #include <time.h>
 
 // Dirty unity build
+// TODO: Do incremental compile and link instead ?
 #include "../po_utility.h"
 #include "../po_window.c"
 
@@ -16,28 +17,6 @@
 #define PULSE SIXTY_FPS
 
 /* ========================================================================== */
-
-// TODO: Separate out surface stuff
-
-/*
- * We use an RGBA bitmap format
- */
-typedef struct po_pixel po_pixel;
-struct po_pixel {
-    uint8_t b;
-    uint8_t g;
-    uint8_t r;
-    uint8_t a;
-};
-
-typedef struct po_surface po_surface;
-struct po_surface {
-    xcb_pixmap_t id;
-    xcb_gcontext_t gc;
-    size_t width;
-    size_t height;
-    po_pixel *data;
-};
 
 void update_surface(po_surface *surface)
 {
@@ -76,46 +55,14 @@ void update_surface(po_surface *surface)
     }
 }
 
-void draw_surface(po_surface *surface, po_window *window)
-{
-    // Write from our surface buffer directly to the window
-    // TODO: First write to our surface pixmap - double buffering
-    xcb_put_image(window->connection, XCB_IMAGE_FORMAT_Z_PIXMAP,
-            window->id, surface->gc, surface->width, surface->height,
-            0, 0, 0, window->screen->root_depth,
-            surface->width * surface->height * sizeof(*surface->data),
-            (uint8_t *)(surface->data));
-
-#if 0
-    // Copy from the pixmap to the window
-    xcb_copy_area(window->connection,
-            surface->id, window->id, surface->gc,
-            0, 0, 0, 0, surface->width, surface->height);
-#endif
-    xcb_flush(window->connection);
-}
-
 int main(void)
 {
-    po_window window = window_init(1080, 720);
+    po_window window = po_window_init(1080, 720);
 
-    // Create surface (pixmap)
-    po_surface surface = {.id = xcb_generate_id(window.connection),
-                          .width = window.width, .height = window.height};
-    surface.data = malloc(surface.width * surface.height * sizeof(*surface.data));
-    if (!surface.data) {
-        LOG_ERROR("Failed to allocate memory for our drawing surface. Exiting.");
+    if (!window.connection) {
+        LOG_ERROR("Failed to initialise our window. Exiting.");
         return 1;
     }
-
-    // NOTE: Currently we're blitting directly to the window
-    // See TODO in draw_surface()
-    xcb_create_pixmap(window.connection, window.screen->root_depth,
-            surface.id, window.id, surface.width, surface.height);
-
-    // Create graphics context
-    surface.gc = xcb_generate_id(window.connection);
-    xcb_create_gc(window.connection, surface.gc, surface.id, 0, NULL);
 
     uint8_t done = 0;
     struct timespec begin, end;
@@ -130,8 +77,8 @@ int main(void)
             break;
         }
 
-        update_surface(&surface);
-        draw_surface(&surface, &window);
+        update_surface(&window.surface);
+        po_render_surface(&window);
 
         clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -154,9 +101,7 @@ int main(void)
     }
 
     // Clean up
-    free(surface.data);
-    xcb_key_symbols_free(window.keysyms);
-    window_destroy(&window);
+    po_window_destroy(&window);
 
     return 0;
 }

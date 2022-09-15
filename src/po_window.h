@@ -6,8 +6,14 @@
 
 /* ========================================================================== */
 
-// This struct must be defined separately by each platform layer
+// These structs must be defined separately by each platform layer
 typedef struct po_window po_window;
+typedef struct po_surface po_surface;
+
+typedef struct po_pixel po_pixel;
+struct po_pixel {
+    uint8_t b, g, r, a;
+};
 
 typedef enum po_key po_key;
 enum po_key {
@@ -19,10 +25,12 @@ enum po_key {
 
 // The following function prototypes must be defined by each platform layer
 
-struct po_window window_init(uint16_t width, uint16_t height);
-void window_destroy(struct po_window *window);
+struct po_window po_window_init(uint16_t width, uint16_t height);
+void po_window_destroy(struct po_window *window);
 
 enum po_key po_key_pressed(struct po_window *window);
+
+void po_render_surface(po_window *window);
 
 /* ========================================================================== */
 
