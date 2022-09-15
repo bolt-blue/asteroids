@@ -2,35 +2,9 @@
 #ifndef PO_WINDOW_H
 #define PO_WINDOW_H
 
+// TODO: Use our own size and type definitions ?
+#include <stddef.h>
 #include <stdint.h>
-
-/* ========================================================================== */
-
-// These structs must be defined separately by each platform layer
-typedef struct po_window po_window;
-typedef struct po_surface po_surface;
-
-typedef struct po_pixel po_pixel;
-struct po_pixel {
-    uint8_t b, g, r, a;
-};
-
-typedef enum po_key po_key;
-enum po_key {
-    PO_KEY_NONE,
-    PO_KEY_Q,
-};
-
-/* ========================================================================== */
-
-// The following function prototypes must be defined by each platform layer
-
-struct po_window po_window_init(uint16_t width, uint16_t height);
-void po_window_destroy(struct po_window *window);
-
-enum po_key po_key_pressed(struct po_window *window);
-
-void po_render_surface(po_window *window);
 
 /* ========================================================================== */
 
@@ -57,5 +31,54 @@ void po_render_surface(po_window *window);
 #else
 #error Platform not supported
 #endif // Platform
+
+/* ========================================================================== */
+
+// These structs must be defined separately by each platform layer
+
+typedef struct po_window po_window;
+typedef struct po_surface po_surface;
+
+/* ========================================================================== */
+
+typedef struct po_arena po_arena;
+struct po_arena {
+    uint32_t capacity;
+    uint32_t top;
+    uint8_t *data;
+};
+
+typedef struct po_context po_context;
+struct po_context {
+    po_window *window;
+    po_arena persistent_memory;
+    po_arena temporary_memory;
+};
+
+typedef struct po_pixel po_pixel;
+struct po_pixel {
+    uint8_t b, g, r, a;
+};
+
+typedef enum po_key po_key;
+enum po_key {
+    PO_KEY_NONE,
+    PO_KEY_Q,
+};
+
+/* ========================================================================== */
+
+// The following function prototypes must be defined by each platform layer
+
+struct po_window po_window_init(uint16_t width, uint16_t height, po_arena *arena);
+void po_window_destroy(struct po_window *window);
+
+enum po_key po_key_pressed(struct po_window *window);
+
+void po_render_surface(po_window *window);
+
+po_arena po_arena_create(size_t size);
+void po_arena_destroy(po_arena *arena);
+void *po_arena_push(size_t size, po_arena *arena);
 
 #endif /* PO_WINDOW_H */

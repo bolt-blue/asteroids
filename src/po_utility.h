@@ -10,6 +10,10 @@
 #define SIXTY_FPS   (NANOSEC / 60.0f)
 #define NSTOMS(n)   ((n) * 0.000001f)
 
+#define KB(v) ((v) * 1024)
+#define MB(v) ((v) * 1024 * 1024)
+#define GB(v) ((v) * 1024 * 1024 * 1024)
+
 /* ========================================================================== */
 
 #define STRIFY(s) STRINGIFY(s)
@@ -57,6 +61,7 @@
 // TODO:
 // - Make this cross platform
 // - Does this actually get inlined when optimised?
+// - Switch to macro version? https://gist.github.com/diabloneo/9619917#gistcomment-3364033
 extern inline void
 po_timespec_diff(struct timespec *a, struct timespec *b,
         struct timespec *result)

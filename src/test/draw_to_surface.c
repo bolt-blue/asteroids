@@ -57,7 +57,8 @@ void update_surface(po_surface *surface)
 
 int main(void)
 {
-    po_window window = po_window_init(1080, 720);
+    po_arena arena = po_arena_create(MB(3));
+    po_window window = po_window_init(1080, 720, &arena);
 
     if (!window.connection) {
         LOG_ERROR("Failed to initialise our window. Exiting.");
@@ -77,7 +78,7 @@ int main(void)
             break;
         }
 
-        update_surface(&window.surface);
+        update_surface(window.surface);
         po_render_surface(&window);
 
         clock_gettime(CLOCK_MONOTONIC, &end);
@@ -102,6 +103,7 @@ int main(void)
 
     // Clean up
     po_window_destroy(&window);
+    po_arena_destroy(&arena);
 
     return 0;
 }

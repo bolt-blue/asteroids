@@ -23,7 +23,7 @@
  *
  */
 po_window
-po_window_init(uint16_t width, uint16_t height)
+po_window_init(uint16_t width, uint16_t height, po_arena *arena)
 {
     po_window window = {0};
 
@@ -71,27 +71,25 @@ po_window_init(uint16_t width, uint16_t height)
             masks, mask_values);                    /* masks                */
 
     // Create surface (pixmap)
-    window.surface = (po_surface){.id = xcb_generate_id(window.connection),
+    po_surface surface = (po_surface){.id = xcb_generate_id(window.connection),
             .width = window.width, .height = window.height};
 
-    window.surface.data = malloc(window.surface.width * window.surface.height *
-            sizeof(*window.surface.data));
-
-    if (!window.surface.data) {
-        // TODO: Communicate the error source to the caller
-        po_window_destroy(&window);
-        return (po_window){0};
-    }
+    surface.data = po_arena_push(surface.width * surface.height *
+            sizeof(*surface.data), arena);
 
     // NOTE: Currently we're blitting directly to the window
     // See TODO in draw_surface()
     xcb_create_pixmap(window.connection, window.screen->root_depth,
-            window.surface.id, window.id,
-            window.surface.width, window.surface.height);
+            surface.id, window.id,
+            surface.width, surface.height);
 
     // Create graphics context
-    window.surface.gc = xcb_generate_id(window.connection);
-    xcb_create_gc(window.connection, window.surface.gc, window.surface.id, 0, NULL);
+    surface.gc = xcb_generate_id(window.connection);
+    xcb_create_gc(window.connection, surface.gc, surface.id, 0, NULL);
+
+    // Store surface details for later
+    window.surface = po_arena_push(sizeof(po_surface), arena);
+    *window.surface = surface;
 
     // Draw the window
     xcb_map_window(window.connection, window.id);
@@ -104,18 +102,15 @@ void
 po_window_destroy(po_window *window)
 {
     xcb_disconnect(window->connection);
-    window->connection = NULL;
-    // setup is invalidated when the connection is freed
-    // Ref: https://xcb.freedesktop.org/PublicApi/#index7h2
-    window->setup = NULL;
-    // can't find in the docs, but we presume the same is true for screen
-    window->screen = NULL;
-
     xcb_key_symbols_free(window->keysyms);
-    window->keysyms = NULL;
 
-    free(window->surface.data);
-    window->surface.data = NULL;
+    // NOTE: setup is invalidated when the connection is freed
+    // Ref: https://xcb.freedesktop.org/PublicApi/#index7h2
+    // can't find in the docs, but we presume the same is true for screen
+
+    // All other allocations are internal and released separately as part of
+    // the memory for the entire game
+    *window = (po_window){0};
 }
 
 // TODO: Need to refactor this ASAP to do proper event handling
@@ -162,7 +157,7 @@ po_key_pressed(po_window *window)
 void
 po_render_surface(po_window *window)
 {
-    po_surface *surface = &window->surface;
+    po_surface *surface = window->surface;
     // Write from our surface buffer directly to the window
     // TODO: First write to our surface pixmap - double buffering
     xcb_put_image(window->connection, XCB_IMAGE_FORMAT_Z_PIXMAP,

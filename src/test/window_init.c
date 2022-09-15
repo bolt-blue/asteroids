@@ -17,7 +17,8 @@
 
 int main(void)
 {
-    po_window window = po_window_init(1080, 720);
+    po_arena arena = po_arena_create(MB(3));
+    po_window window = po_window_init(1080, 720, &arena);
 
     uint8_t done = 0;
     struct timespec pause = {.tv_nsec = PULSE};
@@ -33,6 +34,7 @@ int main(void)
 
     // Clean up
     po_window_destroy(&window);
+    po_arena_destroy(&arena);
 
     return 0;
 }

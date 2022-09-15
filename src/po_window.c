@@ -1,3 +1,7 @@
+#ifdef __unix__
+#include "unix_po_arena.c"
+#endif
+
 #ifdef __linux__
 #ifndef USE_WAYLAND
 #include "x11_po_window.c"

@@ -27,7 +27,7 @@ struct po_window {
 
     xcb_key_symbols_t *keysyms;
 
-    struct po_surface surface;
+    struct po_surface *surface;
 };
 
 #endif /* X11_PO_WINDOW_H */
