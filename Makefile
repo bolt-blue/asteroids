@@ -15,7 +15,7 @@ app_build = $(builddir)/$(app_name)
 
 .PHONY: all clean compdb
 
-all: $(app_build) compdb
+all: $(app_build) compdb tags
 
 $(app_build): $(srcdir)/$(platform)_$(app_name).c $(wildcard $(srcdir)/*.[ch]) | $(builddir)
 	@echo "== Building asteroids"
@@ -32,3 +32,6 @@ compdb: compile_commands.json
 
 compile_commands.json: Makefile
 	make -Bnwk | compiledb
+
+tags: $(wildcard $(srcdir)/*.[ch]) $(obj)
+	ctags -R
