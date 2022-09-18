@@ -6,36 +6,28 @@ DBGFLAGS = -g -O0
 CFLAGS += $(DBGFLAGS)
 
 srcdir = src
-testdir = $(srcdir)/test
 builddir = build
-buildtestdir = $(builddir)/test
 
-src = $(srcdir)/po_window.c 
-obj = $(patsubst %.c,%.o, $(src))
+# TODO: Handle cross-platform building
+platform = unix
+app_name = asteroids
+app_build = $(builddir)/$(app_name)
 
-.PHONY: all test clean
+.PHONY: all clean compdb
 
-all: test compdb
+all: $(app_build) compdb
 
-$(obj):
-
-tests = $(buildtestdir)/window_init $(buildtestdir)/draw_to_surface
-test: $(tests)
-
-# Currently any change to any source results in rebulding all tests
-$(tests): $(wildcard $(testdir)/*.[ch]) $(wildcard $(srcdir)/*.[ch]) | $(builddir)
-	@echo "== Building test: $(notdir $@)"
-	$(CC) $(CFLAGS) $(LDFLAGS) $(testdir)/$(notdir $@).c -o $@
+$(app_build): $(srcdir)/$(platform)_$(app_name).c $(wildcard $(srcdir)/*.[ch]) | $(builddir)
+	@echo "== Building asteroids"
+	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
 
 clean:
-	rm -f $(obj)
 	rm -rf $(builddir)
 
 $(builddir):
-	@mkdir -p $(builddir)/test
+	@mkdir -p $(builddir)
 
 # REF: https://pypi.org/project/compiledb/
-.PHONY: compdb
 compdb: compile_commands.json
 
 compile_commands.json: Makefile

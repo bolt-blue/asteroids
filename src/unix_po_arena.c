@@ -7,6 +7,8 @@
 po_arena
 po_arena_create(size_t size)
 {
+    // TODO: Map to a consistent base address (at least during development)
+    // It will allow for some useful tooling later
     po_arena arena = {.capacity = size};
     arena.data = mmap(0, size,
             PROT_READ | PROT_WRITE,
@@ -38,4 +40,10 @@ po_arena_push(size_t size, po_arena *arena)
     void *result = arena->data + arena->top;
     arena->top += size;
     return result;
+}
+
+inline void
+po_arena_clear(po_arena *arena)
+{
+    arena->top = 0;
 }

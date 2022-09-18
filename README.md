@@ -38,7 +38,7 @@ At least in the beginning, we shall handle all rendering on the CPU.
 
 ## TODO
 
-Current priorities:
+Current priorities in some sort of priority order (from top down):
 
 - [ ] Get X11 support up and running
   - [x] Get colour pixels on the screen (but Asteroids is black and white, you say)
@@ -48,6 +48,9 @@ Current priorities:
 - [x] Fixed frame rate
   - [ ] Confirm we're actually doing this properly
 - [ ] Sound
+- [ ] Handle colour more properly
+  - [ ] Linear colour space
+  - [ ] HSV and Lch support
 
 
 ## Platform Support

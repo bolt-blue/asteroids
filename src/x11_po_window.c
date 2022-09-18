@@ -113,24 +113,37 @@ po_window_destroy(po_window *window)
     *window = (po_window){0};
 }
 
-// TODO: Need to refactor this ASAP to do proper event handling
-// In particular we need to separate key presses from other event types
-po_key
-po_key_pressed(po_window *window)
+/*
+ * Record the state of our controller input
+ * We only track the essentials
+ *
+ * TODO: Remove the enum keys; handle quit differently
+ */
+int
+po_get_input_state(po_window *window, game_input *input)
 {
     po_key key = PO_KEY_NONE;
     xcb_generic_event_t *event;
 
-    if ((event = xcb_poll_for_event(window->connection))) {
+    while ((event = xcb_poll_for_event(window->connection))) {
         switch (event->response_type & ~0x80) {
         case XCB_EXPOSE: {
             // TODO: Sensibly re-draw only what's necessary
         } break;
 
         case XCB_KEY_PRESS: {
-            //xcb_key_press_event_t *k = (xcb_key_press_event_t *)event;
-            //xcb_keysym_t key_symbol =
-            //    xcb_key_press_lookup_keysym(window->keysyms, k, 0);
+            xcb_key_press_event_t *k = (xcb_key_press_event_t *)event;
+            xcb_keysym_t key_symbol =
+                xcb_key_press_lookup_keysym(window->keysyms, k, 0);
+            if (!(k->state & MOD_MASK)) {
+                switch (key_symbol)
+                {
+                case 'w': input->up.is_down    = 1; break;
+                case 'a': input->left.is_down  = 1; break;
+                case 's': input->down.is_down  = 1; break;
+                case 'd': input->right.is_down = 1; break;
+                }
+            }
         } break;
 
         case XCB_KEY_RELEASE: {
@@ -138,8 +151,16 @@ po_key_pressed(po_window *window)
             xcb_keysym_t key_symbol =
                 xcb_key_release_lookup_keysym(window->keysyms, k, 0);
 
-            if (!(k->state & MOD_MASK) && key_symbol == 'q')
-                key = PO_KEY_Q;
+            if (!(k->state & MOD_MASK)) {
+                switch (key_symbol)
+                {
+                case 'w': input->up.is_down    = 0; break;
+                case 'a': input->left.is_down  = 0; break;
+                case 's': input->down.is_down  = 0; break;
+                case 'd': input->right.is_down = 0; break;
+                case 'q': key = PO_KEY_Q; break;
+                }
+            }
         } break;
 
         default: {

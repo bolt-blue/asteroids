@@ -48,11 +48,16 @@ struct po_arena {
     uint8_t *data;
 };
 
+typedef struct po_memory po_memory;
+struct po_memory {
+    po_arena persistent_memory;
+    po_arena temporary_memory;
+};
+
 typedef struct po_context po_context;
 struct po_context {
     po_window *window;
-    po_arena persistent_memory;
-    po_arena temporary_memory;
+    po_memory game_memory;
 };
 
 typedef struct po_pixel po_pixel;
@@ -64,6 +69,23 @@ typedef enum po_key po_key;
 enum po_key {
     PO_KEY_NONE,
     PO_KEY_Q,
+    PO_KEY_W,
+    PO_KEY_A,
+    PO_KEY_S,
+    PO_KEY_D,
+};
+
+typedef struct input_state po_input_state;
+struct input_state {
+    uint32_t is_down;
+};
+
+typedef struct game_input game_input;
+struct game_input {
+    po_input_state up;
+    po_input_state down;
+    po_input_state left;
+    po_input_state right;
 };
 
 /* ========================================================================== */
@@ -73,12 +95,13 @@ enum po_key {
 struct po_window po_window_init(uint16_t width, uint16_t height, po_arena *arena);
 void po_window_destroy(struct po_window *window);
 
-enum po_key po_key_pressed(struct po_window *window);
+int po_get_input_state(struct po_window *window, game_input *input);
 
 void po_render_surface(po_window *window);
 
 po_arena po_arena_create(size_t size);
 void po_arena_destroy(po_arena *arena);
 void *po_arena_push(size_t size, po_arena *arena);
+void po_arena_clear(po_arena *arena);
 
 #endif /* PO_WINDOW_H */
