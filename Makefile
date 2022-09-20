@@ -1,6 +1,6 @@
 CC ?= clang
 CFLAGS ?= -Wall
-LDFLAGS ?= `pkg-config --libs xcb` `pkg-config --libs xcb-keysyms`
+LDFLAGS ?= `pkg-config --libs xcb` `pkg-config --libs xcb-keysyms` -lm
 
 DBGFLAGS = -g -O0
 CFLAGS += $(DBGFLAGS)

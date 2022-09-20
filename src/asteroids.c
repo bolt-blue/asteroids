@@ -6,6 +6,7 @@
  */
 
 // TODO: Switch to using shortened typenames, e.g. u8
+#include <math.h>
 #include <stdint.h>
 
 // Dirty unity build
@@ -25,23 +26,38 @@
 /* ========================================================================== */
 
 typedef struct vector2d vec2;
+typedef struct vector2d point2;
 struct vector2d {
-    int32_t x;
-    int32_t y;
+    float x; float y;
+};
+
+typedef struct vector3d vec3;
+struct vector3d {
+    float x; float y; float z;
+};
+
+typedef struct matrix2x2 mat2x2;
+struct matrix2x2 {
+    vec2 a, b;
 };
 
 typedef struct po_line po_line;
 struct po_line {
-    vec2 va;
-    vec2 vb;
+    point2 va;
+    point2 vb;
     uint32_t thickness;
 };
 
+#define PI 3.14159265358979323846
+#define TWOPI (PI * 2)
+
 struct ship {
+    // TODO: Move to using quaternions at some point
     vec2 position;
-    uint32_t heading;
-    int32_t velocity_x;
-    int32_t velocity_y;
+    vec2 acceleration;
+    vec2 velocity;
+    // theta in radians
+    float heading;
     uint32_t line_count;
     po_line *lines;
 };
@@ -56,6 +72,55 @@ void po_memset(void *mem, int c, size_t n)
     uint8_t *m = mem;
     while (n--)
         *m++ = c;
+}
+
+vec2 vector_add(vec2 a, vec2 b);
+vec2 vector_add_scalar(vec2 v, float amount);
+vec2 vector_multiply_scalar(vec2 a, float amount);
+vec2 vector_rotate(vec2 v, float amount);
+vec3 vector_cross(vec2 a, vec2 b);
+float vector_dot(vec2 a, vec2 b);
+
+vec2 vector_add(vec2 a, vec2 b)
+{
+    return (vec2) {a.x + b.x, a.y + b.y};
+}
+vec2 vector_add_scalar(vec2 v, float amount)
+{
+    return (vec2){v.x + amount, v.y + amount};
+}
+vec2 vector_multiply_scalar(vec2 v, float amount)
+{
+    return (vec2){v.x * amount, v.y * amount};
+}
+/*
+ * Expects amount in radians
+ */
+vec2 vector_rotate(vec2 v, float amount)
+{
+    float sin_amount = sin(amount);
+    float cos_amount = cos(amount);
+    mat2x2 rot = {{cos_amount, -sin_amount},
+                  {sin_amount, cos_amount}};
+    vec2 Vxa = vector_multiply_scalar((vec2){rot.a.x, rot.b.x}, v.x);
+    vec2 Vxb = vector_multiply_scalar((vec2){rot.a.y, rot.b.y}, v.y);
+    return vector_add(Vxa, Vxb);
+}
+/*
+ * This is possibly a bit janky
+ */
+vec3 vector_cross(vec2 a, vec2 b)
+{
+    float az = 0;
+    float bz = -1;
+    return (vec3){
+        a.y *  bz -  az * b.y,
+         az * b.x - a.x *  bz,
+        a.x * b.y - a.y * b.x};
+}
+float vector_dot(vec2 a, vec2 b)
+{
+    return a.x * b.x + a.y * b.y;
 }
 
 /* ========================================================================== */
@@ -82,6 +147,12 @@ draw_ship(po_surface *surface, po_arena *arena)
     for (int i = 0; i < the_ship.line_count; i++)
     {
         po_line line = the_ship.lines[i];
+
+        // TODO: This needs to be arranged so it can be done wide;
+        // multiple rotations at once
+        line = (po_line){.va = vector_rotate(line.va, the_ship.heading),
+                         .vb = vector_rotate(line.vb, the_ship.heading),
+                         .thickness = line.thickness};
 
         // Move line to screen space
         line.va.x += the_ship.position.x;
@@ -136,6 +207,12 @@ draw_ship(po_surface *surface, po_arena *arena)
 int
 game_update_and_render(po_context *context, game_input *input)
 {
+    static float thrust_quantity = 10;
+    static float rotation_factor = 0.1f;
+    static float resistance_factor = 0.01f;
+    // TODO: Don't just hardcode this; even though we're fixed frame rate?
+    static float delta_time = 1.0f / NSTOMS(PULSE);
+
     po_window *window = context->window;
 
     // DEBUG @tmp
@@ -143,8 +220,9 @@ game_update_and_render(po_context *context, game_input *input)
     if (first_time) {
         the_ship = (struct ship){.line_count = 5,
             .lines = po_arena_push(5 * sizeof(po_line), &context->game_memory.persistent_memory),
-            .position = {.x = window->width / 2, .y = window->height / 2},
-            .velocity_x = 10, .velocity_y = 10};
+            .position = {.x = window->width / 2.0f, .y = window->height / 2.0f},
+            .velocity = {0, 0}, .acceleration = {0, thrust_quantity}
+        };
         // The lines are in local coordinate space, based on the position
         the_ship.lines[0] = (po_line){{  0, -30}, { 20,  20}};
         the_ship.lines[1] = (po_line){{ 20,  20}, {-20,  20}};
@@ -157,25 +235,63 @@ game_update_and_render(po_context *context, game_input *input)
     clear_screen(window->surface);
 
     // Move ship
-    if (input->up.is_down)    the_ship.position.y -= the_ship.velocity_y;
-    if (input->down.is_down)  the_ship.position.y += the_ship.velocity_y;
-    if (input->left.is_down)  the_ship.position.x -= the_ship.velocity_x;
-    if (input->right.is_down) the_ship.position.x += the_ship.velocity_x;
+    // TODO: Separate out once things are working nicely
+    if (input->left.is_down) {
+        the_ship.heading -= rotation_factor;
+        if (the_ship.heading < 0)
+            the_ship.heading += TWOPI;
+    }
+    if (input->right.is_down) {
+        the_ship.heading += rotation_factor;
+        if (the_ship.heading > TWOPI)
+            the_ship.heading -= TWOPI;
+    }
+    if (input->thrust.is_down) {
+        // TODO: Don't recalculate this every frame if we don't have to
+        the_ship.acceleration = vector_rotate(the_ship.acceleration, the_ship.heading);
+        // NOTE:
+        // - The acceleration has a constant magnitude
+        // - The velocity vector denotes direction and speed (it's magnitude)
+        // TODO: Set a terminal velocity - it's technically susceptible to wrapping
+        vec2 velocity_change = vector_multiply_scalar(the_ship.acceleration, delta_time);
+        // TODO: Avoid having to negate y everywhere
+        velocity_change.y *= -1;
+        // TODO: Why do we also have to negate x here?
+        velocity_change.x *= -1;
+        the_ship.velocity = vector_add(the_ship.velocity, velocity_change);
+
+        // Reset acceleration for the next round
+        // TODO: Avoid having to do this
+        the_ship.acceleration = (vec2){0, thrust_quantity};
+    } else {
+        // Enforce a gradual decelleration when not under thrust
+        if (the_ship.velocity.x != 0 || the_ship.velocity.y != 0) {
+            vec2 resist =
+                vector_multiply_scalar(the_ship.velocity, -1 * resistance_factor);
+            the_ship.velocity = vector_add(the_ship.velocity, resist);
+        }
+    }
+
+    the_ship.position = vector_add(the_ship.velocity, the_ship.position);
 
     if (the_ship.position.x < 0) {
-        size_t new_pos = window->surface->width + the_ship.position.x;
+        int32_t factor = ABS(the_ship.position.x + 0.5) / window->surface->width + 1;
+        float new_pos = the_ship.position.x + window->surface->width * factor;
         the_ship.position.x = new_pos;
     }
     else if (the_ship.position.x >= window->surface->width) {
-        size_t new_pos = the_ship.position.x - window->surface->width;
+        int32_t factor = ABS(the_ship.position.x) / window->surface->width;
+        float new_pos = the_ship.position.x - window->surface->width * factor;
         the_ship.position.x = new_pos;
     }
     if (the_ship.position.y < 0) {
-        size_t new_pos = window->surface->height + the_ship.position.y;
+        int32_t factor = ABS(the_ship.position.y + 0.5) / window->surface->height + 1;
+        float new_pos = the_ship.position.y + window->surface->height * factor;
         the_ship.position.y = new_pos;
     }
     else if (the_ship.position.y >= window->surface->height) {
-        size_t new_pos = the_ship.position.y - window->surface->height;
+        int32_t factor = ABS(the_ship.position.y) / window->surface->height;
+        float new_pos = the_ship.position.y - window->surface->height * factor;
         the_ship.position.y = new_pos;
     }
 

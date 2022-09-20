@@ -138,10 +138,11 @@ po_get_input_state(po_window *window, game_input *input)
             if (!(k->state & MOD_MASK)) {
                 switch (key_symbol)
                 {
-                case 'w': input->up.is_down    = 1; break;
-                case 'a': input->left.is_down  = 1; break;
-                case 's': input->down.is_down  = 1; break;
-                case 'd': input->right.is_down = 1; break;
+                case 'w': input->thrust.is_down = 1; break;
+                case 'a': input->left.is_down   = 1; break;
+                case 'd': input->right.is_down  = 1; break;
+                case 'h': input->hyper.is_down  = 1; break;
+                case ' ': input->fire.is_down   = 1; break;
                 }
             }
         } break;
@@ -154,10 +155,11 @@ po_get_input_state(po_window *window, game_input *input)
             if (!(k->state & MOD_MASK)) {
                 switch (key_symbol)
                 {
-                case 'w': input->up.is_down    = 0; break;
-                case 'a': input->left.is_down  = 0; break;
-                case 's': input->down.is_down  = 0; break;
-                case 'd': input->right.is_down = 0; break;
+                case 'w': input->thrust.is_down = 0; break;
+                case 'a': input->left.is_down   = 0; break;
+                case 'd': input->right.is_down  = 0; break;
+                case 'h': input->hyper.is_down  = 0; break;
+                case ' ': input->fire.is_down   = 0; break;
                 case 'q': key = PO_KEY_Q; break;
                 }
             }

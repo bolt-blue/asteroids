@@ -82,10 +82,11 @@ struct input_state {
 
 typedef struct game_input game_input;
 struct game_input {
-    po_input_state up;
-    po_input_state down;
+    po_input_state thrust;
     po_input_state left;
     po_input_state right;
+    po_input_state hyper;
+    po_input_state fire;
 };
 
 /* ========================================================================== */
