@@ -65,16 +65,6 @@ struct po_pixel {
     uint8_t b, g, r, a;
 };
 
-typedef enum po_key po_key;
-enum po_key {
-    PO_KEY_NONE,
-    PO_KEY_Q,
-    PO_KEY_W,
-    PO_KEY_A,
-    PO_KEY_S,
-    PO_KEY_D,
-};
-
 typedef struct input_state po_input_state;
 struct input_state {
     uint32_t is_down;
@@ -87,6 +77,7 @@ struct game_input {
     po_input_state right;
     po_input_state hyper;
     po_input_state fire;
+    uint32_t quit;
 };
 
 /* ========================================================================== */

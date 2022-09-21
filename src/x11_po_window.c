@@ -10,6 +10,8 @@
 #define MOD_MASK (XCB_MOD_MASK_SHIFT | XCB_MOD_MASK_LOCK | XCB_MOD_MASK_CONTROL\
         | XCB_MOD_MASK_1 | XCB_MOD_MASK_4)
 
+#define ESC 0xff1b // keycode 9
+
 /* ========================================================================== */
 
 /*
@@ -117,12 +119,11 @@ po_window_destroy(po_window *window)
  * Record the state of our controller input
  * We only track the essentials
  *
- * TODO: Remove the enum keys; handle quit differently
+ * TODO: Utilise the return value for error handling
  */
 int
 po_get_input_state(po_window *window, game_input *input)
 {
-    po_key key = PO_KEY_NONE;
     xcb_generic_event_t *event;
 
     while ((event = xcb_poll_for_event(window->connection))) {
@@ -160,9 +161,11 @@ po_get_input_state(po_window *window, game_input *input)
                 case 'd': input->right.is_down  = 0; break;
                 case 'h': input->hyper.is_down  = 0; break;
                 case ' ': input->fire.is_down   = 0; break;
-                case 'q': key = PO_KEY_Q; break;
+                case ESC: input->quit           = 1; break;
                 }
             }
+            // NOTE: Alternatively the ESC key could be detected directly via
+            // its keycode rather than symbol, by checking k->detail instead
         } break;
 
         default: {
@@ -174,7 +177,7 @@ po_get_input_state(po_window *window, game_input *input)
         free(event);
     }
 
-    return key;
+    return 0;
 }
 
 void

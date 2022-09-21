@@ -44,8 +44,8 @@ int main(void)
         clock_gettime(CLOCK_MONOTONIC, &begin);
 
         // Process input
-        int quit = po_get_input_state(context.window, &controller_input);
-        if (quit) done = 1;
+        po_get_input_state(context.window, &controller_input);
+        if (controller_input.quit) done = 1;
 
         // TODO: Make use of return value here
         // TODO: Pass only the necessities
