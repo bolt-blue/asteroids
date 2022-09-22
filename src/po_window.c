@@ -21,3 +21,5 @@
 #else
 #error Platform not supported
 #endif // Platform
+
+#include "po_stack.c"

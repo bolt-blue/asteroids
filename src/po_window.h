@@ -54,6 +54,16 @@ struct po_memory {
     po_arena temporary_memory;
 };
 
+typedef struct po_stack po_stack;
+struct po_stack {
+    size_t max;
+    size_t top;
+    size_t member_size;
+    int8_t *data;
+};
+
+/* ========================================================================== */
+
 typedef struct po_context po_context;
 struct po_context {
     po_window *window;
@@ -91,9 +101,15 @@ int po_get_input_state(struct po_window *window, game_input *input);
 
 void po_render_surface(po_window *window);
 
+/* ========================================================================== */
+
 po_arena po_arena_create(size_t size);
 void po_arena_destroy(po_arena *arena);
 void *po_arena_push(size_t size, po_arena *arena);
 void po_arena_clear(po_arena *arena);
+
+po_stack po_stack_create(size_t capacity, size_t member_size, po_arena *arena);
+int po_stack_push(po_stack *stack, void *value);
+void *po_stack_pop(po_stack *stack);
 
 #endif /* PO_WINDOW_H */

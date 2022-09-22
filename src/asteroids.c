@@ -28,18 +28,6 @@
 
 /* ========================================================================== */
 
-typedef struct po_stack po_stack;
-struct po_stack {
-    size_t max;
-    size_t top;
-    size_t member_size;
-    int8_t *data;
-};
-
-inline po_stack stack_create(size_t capacity, size_t member_size, po_arena *arena);
-int stack_push(po_stack *stack, void *value);
-void *stack_pop(po_stack *stack);
-
 typedef struct vector2d vec2;
 typedef struct vector2d point2;
 struct vector2d {
@@ -62,7 +50,7 @@ struct po_line {
     point2 vb;
     uint32_t thickness;
 };
-#define CREATE_LINE_STACK(cap, arena_ptr) stack_create((cap), sizeof(po_line), (arena_ptr))
+#define CREATE_LINE_STACK(cap, arena_ptr) po_stack_create((cap), sizeof(po_line), (arena_ptr))
 inline int line_stack_push(po_stack *stack, po_line line);
 inline po_line *line_stack_pop(po_stack *stack);
 
@@ -341,58 +329,12 @@ void turn_the_ship(size_t n, po_line lines[n], float rad)
 
 /* ========================================================================== */
 
-po_stack
-stack_create(size_t capacity, size_t member_size, po_arena *arena)
-{
-    po_stack result = (po_stack){.max = capacity, .member_size = member_size,
-        result.data = po_arena_push(capacity * member_size, arena)};
-    return result;
-}
-
-/*
- * WARNING:
- * Don't call this with overlapping memory
- */
-void
-mem_copy(void *dst, void *src, size_t amt)
-{
-    int8_t *dbyte = dst, *sbyte = src;
-    while (amt--)
-    {
-        *dbyte = *sbyte;
-        sbyte++;
-        dbyte++;
-    }
-}
-
-int
-stack_push(po_stack *stack, void *value)
-{
-    // TODO: Maybe we change this in future. For now though, we should only
-    // create and use stacks of known sufficient and manageable sizes
-    ASSERT(stack->top < stack->max);
-    //if (stack->top == stack->max) return 1;
-    size_t pos = stack->top * stack->member_size;
-    mem_copy(&stack->data[pos], value, stack->member_size);
-    stack->top++;
-    return 0;
-}
-
-void *
-stack_pop(po_stack *stack)
-{
-    if (stack->top == 0) return NULL;
-    stack->top--;
-    size_t pos = stack->top * stack->member_size;
-    return &stack->data[pos];
-}
-
 int
 line_stack_push(po_stack *stack, po_line line)
 {
     // A rudimentary check, but better than nothing I guess
     ASSERT(stack->member_size == sizeof(line));
-    return stack_push(stack, &line);
+    return po_stack_push(stack, &line);
 }
 
 /*
@@ -402,7 +344,7 @@ line_stack_push(po_stack *stack, po_line line)
 po_line *
 line_stack_pop(po_stack *stack)
 {
-    return (po_line *)stack_pop(stack);
+    return (po_line *)po_stack_pop(stack);
 }
 
 /* ========================================================================== */
