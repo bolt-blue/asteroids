@@ -50,9 +50,9 @@ At least in the beginning, we shall handle all rendering on the CPU.
 
 Current priorities in some sort of priority order (from top down):
 
-- [ ] Get X11 support up and running
+- [x] Get basic X11 support up and running
   - [x] Get colour pixels on the screen (but Asteroids is black and white, you say)
-  - [ ] Proper event handling
+  - [x] "Proper" event handling
 - [x] Line drawing
 - [ ] Memory management
   - [x] Basic
@@ -75,8 +75,8 @@ Current priorities in some sort of priority order (from top down):
 We are not targetting every platform in existence, but at least the following:
 
 - [ ] Desktop
-    - [ ] Linux
-        - [ ] X11
+    - [ ] Unix
+        - [x] X11
         - [ ] Wayland
     - [ ] OSX
     - [ ] Windows

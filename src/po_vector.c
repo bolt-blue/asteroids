@@ -1,6 +1,8 @@
 #include <math.h>
 
-#include "po_window.h"
+#include "po_vector.h"
+
+/* ========================================================================== */
 
 vec2 vector_add(vec2 a, vec2 b)
 {

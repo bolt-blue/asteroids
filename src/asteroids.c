@@ -11,14 +11,17 @@
 #include <stdio.h>  // For our ASSERT macro only
 #endif
 
+#include "asteroids.h"
+
+#include "po_utility.h"
+
 // Dirty unity build
 // TODO: Do incremental compile and link instead ?
-#include "po_utility.h"
-#include "po_window.h"
+#include "po_stack.c"
+#include "po_vector.c"
+
 
 /* ========================================================================== */
-
-#define PULSE THIRTY_FPS
 
 // WARNING: Don't be silly and pass an expression with side-effects
 // TODO: This should work with negative numbers as well
@@ -70,12 +73,10 @@ void po_memset(void *mem, int c, size_t n)
 /* ========================================================================== */
 
 void
-clear_screen(po_surface *surface)
+clear_draw_buffer(offscreen_draw_buffer *buffer, po_pixel colour)
 {
-    po_pixel colour = {30, 30, 30};
-
-    po_pixel *cursor = surface->data;
-    po_pixel *end = surface->data + surface->width * surface->height;
+    po_pixel *cursor = buffer->data;
+    po_pixel *end = buffer->data + buffer->width * buffer->height;
 
     while (cursor != end)
     {
@@ -85,7 +86,7 @@ clear_screen(po_surface *surface)
 
 // DEBUG @tmp
 void
-draw_ship(po_surface *surface, po_arena *arena)
+draw_ship(offscreen_draw_buffer *buffer, po_arena *arena)
 {
     po_pixel ship_colour = {.r = 200, .g = 200, .b = 200};
     for (int i = 0; i < the_ship.line_count; i++)
@@ -102,8 +103,8 @@ draw_ship(po_surface *surface, po_arena *arena)
         po_line *segments;
         size_t segment_count;
         if (!(segments = line_divide(line, 0,
-                                     surface->width - 1,
-                                     0, surface->height - 1,
+                                     buffer->width - 1,
+                                     0, buffer->height - 1,
                                      arena, &segment_count)))
             // TODO: Log or ?
             return;
@@ -135,10 +136,10 @@ draw_ship(po_surface *surface, po_arena *arena)
             float cur_y = Ay;
 
             for (int i = 0; i < steps; i++) {
-                ASSERT(ROUND(cur_y) * surface->width + ROUND(cur_x) >= 0);
-                ASSERT(ROUND(cur_y) * surface->width + ROUND(cur_x) <
-                        surface->width * surface->height);
-                surface->data[ROUND(cur_y) * surface->width + ROUND(cur_x)] = ship_colour;
+                ASSERT(ROUND(cur_y) * buffer->width + ROUND(cur_x) >= 0);
+                ASSERT(ROUND(cur_y) * buffer->width + ROUND(cur_x) <
+                        buffer->width * buffer->height);
+                buffer->data[ROUND(cur_y) * buffer->width + ROUND(cur_x)] = ship_colour;
                 cur_x += x_step;
                 cur_y += y_step;
             }
@@ -147,7 +148,7 @@ draw_ship(po_surface *surface, po_arena *arena)
 }
 
 int
-game_update_and_render(po_context *context, game_input *input)
+game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_buffer *buffer)
 {
     static float thrust_quantity = 10;
     static float rotation_factor = 0.1f;
@@ -155,14 +156,12 @@ game_update_and_render(po_context *context, game_input *input)
     // TODO: Don't just hardcode this; even though we're fixed frame rate?
     static float delta_time = 1.0f / NSTOMS(PULSE);
 
-    po_window *window = context->window;
-
     // DEBUG @tmp
     static int first_time = 1;
     if (first_time) {
         the_ship = (struct ship){.line_count = 5,
-            .lines = po_arena_push(5 * sizeof(po_line), &context->game_memory.persistent_memory),
-            .position = {.x = window->width / 2.0f, .y = window->height / 2.0f},
+            .lines = po_arena_push(5 * sizeof(po_line), &memory->persistent_memory),
+            .position = {.x = buffer->width / 2.0f, .y = buffer->height / 2.0f},
             .velocity = {0, 0}, .acceleration = {0, thrust_quantity}
         };
         // The lines are in local coordinate space, based on the position
@@ -174,7 +173,8 @@ game_update_and_render(po_context *context, game_input *input)
         first_time = 0;
     }
 
-    clear_screen(window->surface);
+    po_pixel clear_colour = {30, 30, 30};
+    clear_draw_buffer(buffer, clear_colour);
 
     // Move ship
     // TODO: Separate out once things are working nicely
@@ -222,30 +222,30 @@ game_update_and_render(po_context *context, game_input *input)
 
     // TODO: Pull this out as soon as we have more objects
     if (the_ship.position.x < 0) {
-        int32_t factor = ABS(the_ship.position.x + 0.5) / window->surface->width + 1;
-        float new_pos = the_ship.position.x + window->surface->width * factor;
+        int32_t factor = ABS(the_ship.position.x + 0.5) / buffer->width + 1;
+        float new_pos = the_ship.position.x + buffer->width * factor;
         the_ship.position.x = new_pos;
     }
-    else if (the_ship.position.x >= window->surface->width) {
-        int32_t factor = ABS(the_ship.position.x) / window->surface->width;
-        float new_pos = the_ship.position.x - window->surface->width * factor;
+    else if (the_ship.position.x >= buffer->width) {
+        int32_t factor = ABS(the_ship.position.x) / buffer->width;
+        float new_pos = the_ship.position.x - buffer->width * factor;
         the_ship.position.x = new_pos;
     }
     if (the_ship.position.y < 0) {
-        int32_t factor = ABS(the_ship.position.y + 0.5) / window->surface->height + 1;
-        float new_pos = the_ship.position.y + window->surface->height * factor;
+        int32_t factor = ABS(the_ship.position.y + 0.5) / buffer->height + 1;
+        float new_pos = the_ship.position.y + buffer->height * factor;
         the_ship.position.y = new_pos;
     }
-    else if (the_ship.position.y >= window->surface->height) {
-        int32_t factor = ABS(the_ship.position.y) / window->surface->height;
-        float new_pos = the_ship.position.y - window->surface->height * factor;
+    else if (the_ship.position.y >= buffer->height) {
+        int32_t factor = ABS(the_ship.position.y) / buffer->height;
+        float new_pos = the_ship.position.y - buffer->height * factor;
         the_ship.position.y = new_pos;
     }
 
-    draw_ship(window->surface, &context->game_memory.temporary_memory);
+    draw_ship(buffer, &memory->temporary_memory);
 
     // Clean up for next frame
-    po_arena_clear(&context->game_memory.temporary_memory);
+    po_arena_clear(&memory->temporary_memory);
 
     return 0;
 }

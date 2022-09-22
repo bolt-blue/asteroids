@@ -1,13 +1,13 @@
 // Platform-dependent includes
 #ifdef __linux__
 #ifndef USE_WAYLAND
-#include "x11_po_window.c"
+#include "x11_platform.c"
 #else
-#include "wayland_po_window.c"
+#include "wayland_platform.c"
 #endif // X11 or Wayland
 
 #elif __unix__
-#include "x11_po_window.c"
+#include "x11_platform.c"
 
 #elif __APPLE__
     // TODO: Apple support (OSX and iOS)

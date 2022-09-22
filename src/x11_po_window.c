@@ -1,27 +1,15 @@
-#include <stdlib.h>  // free (seems a bit exessive, but oh well)
-
 #include "po_window.h"
-
-// TODO: Error handling
-
-// Mask for the common key modifiers, ignoring those we're generally not
-// interested in, e.g. num lock
-// MASK_1 and _4 hopefully represent alt/meta/windows keys - ymmv?
-#define MOD_MASK (XCB_MOD_MASK_SHIFT | XCB_MOD_MASK_LOCK | XCB_MOD_MASK_CONTROL\
-        | XCB_MOD_MASK_1 | XCB_MOD_MASK_4)
-
-#define ESC 0xff1b // keycode 9
+#include "po_arena.h"
 
 /* ========================================================================== */
+
+// TODO: Error handling
 
 /*
  * Create and initialise a window
  *
  * In this context and window is mainly a means to having a plain old drawing
  * surface.
- *
- * At present the surface is automatically created and matches the requested
- * dimensions for the window. This may or may not remain as the default case.
  *
  */
 po_window
@@ -60,10 +48,10 @@ po_window_init(uint16_t width, uint16_t height, po_arena *arena)
     window.keysyms = xcb_key_symbols_alloc(window.connection);
 
     // Create window
-    window.id = xcb_generate_id(window.connection);
+    window.win_id = xcb_generate_id(window.connection);
     xcb_create_window(window.connection,
             XCB_COPY_FROM_PARENT,                   /* depth (same as root) */
-            window.id,                              /* window id            */
+            window.win_id,                          /* window id            */
             window.screen->root,                    /* parent window        */
             0, 0,                                   /* x, y (ignored by WM) */
             window.width, window.height,            /* width, height        */
@@ -73,28 +61,21 @@ po_window_init(uint16_t width, uint16_t height, po_arena *arena)
             masks, mask_values);                    /* masks                */
 
     // Create surface (pixmap)
-    po_surface surface = (po_surface){.id = xcb_generate_id(window.connection),
-            .width = window.width, .height = window.height};
-
-    surface.data = po_arena_push(surface.width * surface.height *
-            sizeof(*surface.data), arena);
+    window.pm_id = xcb_generate_id(window.connection),
 
     // NOTE: Currently we're blitting directly to the window
+    // so the pixmap is going totally unused?
     // See TODO in draw_surface()
     xcb_create_pixmap(window.connection, window.screen->root_depth,
-            surface.id, window.id,
-            surface.width, surface.height);
+            window.pm_id, window.win_id,
+            window.width, window.height);
 
     // Create graphics context
-    surface.gc = xcb_generate_id(window.connection);
-    xcb_create_gc(window.connection, surface.gc, surface.id, 0, NULL);
-
-    // Store surface details for later
-    window.surface = po_arena_push(sizeof(po_surface), arena);
-    *window.surface = surface;
+    window.gc_id = xcb_generate_id(window.connection);
+    xcb_create_gc(window.connection, window.gc_id, window.pm_id, 0, NULL);
 
     // Draw the window
-    xcb_map_window(window.connection, window.id);
+    xcb_map_window(window.connection, window.win_id);
     xcb_flush(window.connection);
 
     return window;
@@ -113,90 +94,4 @@ po_window_destroy(po_window *window)
     // All other allocations are internal and released separately as part of
     // the memory for the entire game
     *window = (po_window){0};
-}
-
-/*
- * Record the state of our controller input
- * We only track the essentials
- *
- * TODO: Utilise the return value for error handling
- */
-int
-po_get_input_state(po_window *window, game_input *input)
-{
-    xcb_generic_event_t *event;
-
-    while ((event = xcb_poll_for_event(window->connection))) {
-        switch (event->response_type & ~0x80) {
-        case XCB_EXPOSE: {
-            // TODO: Sensibly re-draw only what's necessary
-        } break;
-
-        case XCB_KEY_PRESS: {
-            xcb_key_press_event_t *k = (xcb_key_press_event_t *)event;
-            xcb_keysym_t key_symbol =
-                xcb_key_press_lookup_keysym(window->keysyms, k, 0);
-            if (!(k->state & MOD_MASK)) {
-                switch (key_symbol)
-                {
-                case 'w': input->thrust.is_down = 1; break;
-                case 'a': input->left.is_down   = 1; break;
-                case 'd': input->right.is_down  = 1; break;
-                case 'h': input->hyper.is_down  = 1; break;
-                case ' ': input->fire.is_down   = 1; break;
-                }
-            }
-        } break;
-
-        case XCB_KEY_RELEASE: {
-            xcb_key_release_event_t *k = (xcb_key_release_event_t *)event;
-            xcb_keysym_t key_symbol =
-                xcb_key_release_lookup_keysym(window->keysyms, k, 0);
-
-            if (!(k->state & MOD_MASK)) {
-                switch (key_symbol)
-                {
-                case 'w': input->thrust.is_down = 0; break;
-                case 'a': input->left.is_down   = 0; break;
-                case 'd': input->right.is_down  = 0; break;
-                case 'h': input->hyper.is_down  = 0; break;
-                case ' ': input->fire.is_down   = 0; break;
-                case ESC: input->quit           = 1; break;
-                }
-            }
-            // NOTE: Alternatively the ESC key could be detected directly via
-            // its keycode rather than symbol, by checking k->detail instead
-        } break;
-
-        default: {
-            // Ignore unknown event
-        } break;
-        }
-        // Avoid memory leak
-        // TODO: Can we do any better than this?
-        free(event);
-    }
-
-    return 0;
-}
-
-void
-po_render_surface(po_window *window)
-{
-    po_surface *surface = window->surface;
-    // Write from our surface buffer directly to the window
-    // TODO: First write to our surface pixmap - double buffering
-    xcb_put_image(window->connection, XCB_IMAGE_FORMAT_Z_PIXMAP,
-            window->id, surface->gc, surface->width, surface->height,
-            0, 0, 0, window->screen->root_depth,
-            surface->width * surface->height * sizeof(*surface->data),
-            (uint8_t *)(surface->data));
-
-#if 0
-    // Copy from the pixmap to the window
-    xcb_copy_area(window->connection,
-            surface->id, window->id, surface->gc,
-            0, 0, 0, 0, surface->width, surface->height);
-#endif
-    xcb_flush(window->connection);
 }

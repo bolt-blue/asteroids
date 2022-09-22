@@ -11,15 +11,23 @@ builddir = build
 # TODO: Handle cross-platform building
 platform = unix
 app_name = asteroids
-app_build = $(builddir)/$(app_name)
+app_platform = $(builddir)/$(app_name)
+app_core = $(builddir)/$(app_name).so
+libflags = -fPIC -shared
 
 .PHONY: all clean compdb
 
-all: $(app_build) compdb tags
+all: $(app_platform) compdb tags
 
-$(app_build): $(srcdir)/$(platform)_$(app_name).c $(wildcard $(srcdir)/*.[ch]) | $(builddir)
-	@echo "== Building asteroids"
+$(app_core): $(srcdir)/$(app_name).c $(wildcard $(srcdir)/*.[ch]) | $(builddir)
+	@echo "== Building asteroids core"
+	$(CC) $(CFLAGS) $(libflags) $(LDFLAGS) $< -o $@
+	@echo ""
+
+$(app_platform): $(srcdir)/$(platform)_$(app_name).c $(app_core) $(wildcard $(srcdir)/*.[ch]) | $(builddir)
+	@echo "== Building asteroids for $(platform)"
 	$(CC) $(CFLAGS) $(LDFLAGS) $< -o $@
+	@echo ""
 
 clean:
 	rm -rf $(builddir)

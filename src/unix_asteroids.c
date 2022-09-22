@@ -5,34 +5,52 @@
 
 #include <stdio.h>
 
+#include "platform.h"
+
+#include "po_utility.h"
+#include "po_window.h"
+
 // Dirty unity build
 // TODO: Do incremental compile and link instead ?
-#include "asteroids.c"
-#include "po_utility.h"
+#include "platform.c"
+#include "unix_po_arena.c"
 #include "po_window.c"
+
+#include "asteroids.h"
+// DEBUG @tmp
+#include "asteroids.c"
 
 /* ========================================================================== */
 
+#define SCR_WIDTH 1080
+#define SCR_HEIGHT 720
+
 int main(void)
 {
-    po_context context = {0};
+    game_memory memory;
+    memory.persistent_memory = po_arena_create(MB(4));
+    memory.temporary_memory = po_arena_create(MB(4));
 
-    context.game_memory.persistent_memory = po_arena_create(MB(4));
-    context.game_memory.temporary_memory = po_arena_create(MB(4));
-
-    context.window = po_arena_push(sizeof(po_window), &context.game_memory.persistent_memory);
-    *context.window = po_window_init(1080, 720, &context.game_memory.persistent_memory);
+    po_window *window = po_arena_push(sizeof(po_window), &memory.persistent_memory);
+    *window = po_window_init(SCR_WIDTH, SCR_HEIGHT, &memory.persistent_memory);
 
     // TODO This check should be handled internally
     // We need a good way to retrieve any error status here
-    if (!context.window->connection) {
+    if (!window->connection) {
         LOG_ERROR("Failed to initialise our window. Exiting.");
         return 1;
     }
 
-    // TODO: Do event gathering here, then pass them to the game code directly
-    // The game code should not have to call into the platform layer
     game_input controller_input = {0};
+
+    offscreen_draw_buffer draw_buffer = {
+        .width = SCR_WIDTH, .height = SCR_HEIGHT,
+        .data = po_arena_push(SCR_WIDTH * SCR_HEIGHT * sizeof(po_pixel),
+                &memory.persistent_memory)
+    };
+
+    // The window directly references the draw buffer
+    window->buffer = draw_buffer.data;
 
     uint8_t done = 0;
     struct timespec begin, end;
@@ -44,15 +62,11 @@ int main(void)
         clock_gettime(CLOCK_MONOTONIC, &begin);
 
         // Process input
-        po_get_input_state(context.window, &controller_input);
+        po_get_input_state(window, &controller_input);
         if (controller_input.quit) done = 1;
 
         // TODO: Make use of return value here
-        // TODO: Pass only the necessities
-        // - input
-        // - draw buffer
-        // - audio buffer
-        game_update_and_render(&context, &controller_input);
+        game_update_and_render(&memory, &controller_input, &draw_buffer);
 
         clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -74,12 +88,12 @@ int main(void)
         nanosleep(&pause, NULL);
 
         // Blit
-        po_render_surface(context.window);
+        po_render_to_screen(window);
     }
 
     // Clean up
-    po_window_destroy(context.window);
-    po_arena_destroy(&context.game_memory.persistent_memory);
+    po_window_destroy(window);
+    po_arena_destroy(&memory.persistent_memory);
 
     return 0;
 }

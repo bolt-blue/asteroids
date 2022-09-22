@@ -6,28 +6,21 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 
-struct po_surface {
-    xcb_pixmap_t id;
-    xcb_gcontext_t gc;
-    size_t width;
-    size_t height;
-    struct po_pixel *data;
-};
-
 struct po_window {
     uint16_t width;
     uint16_t height;
 
-    xcb_window_t id;
+    xcb_window_t win_id;
+    xcb_pixmap_t pm_id;
+    xcb_gcontext_t gc_id;
 
+    // TODO: Only store the essentials here
     xcb_connection_t *connection;
-    // TODO: Do we really need to store setup?
     const xcb_setup_t *setup;
     const xcb_screen_t *screen;
-
     xcb_key_symbols_t *keysyms;
 
-    struct po_surface *surface;
+    const struct po_pixel *buffer;
 };
 
 #endif /* X11_PO_WINDOW_H */
