@@ -43,11 +43,18 @@ Current priorities in some sort of priority order (from top down):
 - [ ] Get X11 support up and running
   - [x] Get colour pixels on the screen (but Asteroids is black and white, you say)
   - [ ] Proper event handling
-- [ ] Line drawing
+- [x] Line drawing
 - [ ] Memory management
+  - [x] Basic
 - [x] Fixed frame rate
   - [ ] Confirm we're actually doing this properly
+- [ ] Hot-loading for live editing
+- [ ] Collision detection
+- [ ] Text support
+- [ ] Sub-pixel rendering
+- [ ] Antialiasing
 - [ ] Sound
+- [ ] Window resizing and fullscreen support
 - [ ] Handle colour more properly
   - [ ] Linear colour space
   - [ ] HSV and Lch support

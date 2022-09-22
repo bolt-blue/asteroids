@@ -58,11 +58,14 @@ struct ship {
     vec2 velocity;
     // theta in radians
     float heading;
+    float previous_heading;
     uint32_t line_count;
     po_line *lines;
 };
 
 struct ship the_ship;
+
+void turn_the_ship(size_t n, po_line lines[n], float rad);
 
 internal po_line *line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count);
@@ -148,12 +151,6 @@ draw_ship(po_surface *surface, po_arena *arena)
     {
         po_line line = the_ship.lines[i];
 
-        // TODO: This needs to be arranged so it can be done wide;
-        // multiple rotations at once
-        line = (po_line){.va = vector_rotate(line.va, the_ship.heading),
-                         .vb = vector_rotate(line.vb, the_ship.heading),
-                         .thickness = line.thickness};
-
         // Move line to screen space
         line.va.x += the_ship.position.x;
         line.va.y += the_ship.position.y;
@@ -236,6 +233,7 @@ game_update_and_render(po_context *context, game_input *input)
 
     // Move ship
     // TODO: Separate out once things are working nicely
+    the_ship.previous_heading = the_ship.heading;
     if (input->left.is_down) {
         the_ship.heading -= rotation_factor;
         if (the_ship.heading < 0)
@@ -243,12 +241,18 @@ game_update_and_render(po_context *context, game_input *input)
     }
     if (input->right.is_down) {
         the_ship.heading += rotation_factor;
-        if (the_ship.heading > TWOPI)
+        if (the_ship.heading >= TWOPI)
             the_ship.heading -= TWOPI;
     }
+
+    if (the_ship.heading != the_ship.previous_heading) {
+        float delta_heading = the_ship.heading - the_ship.previous_heading;
+
+        turn_the_ship(the_ship.line_count, the_ship.lines, delta_heading);
+        the_ship.acceleration = vector_rotate(the_ship.acceleration, delta_heading);
+    }
+
     if (input->thrust.is_down) {
-        // TODO: Don't recalculate this every frame if we don't have to
-        the_ship.acceleration = vector_rotate(the_ship.acceleration, the_ship.heading);
         // NOTE:
         // - The acceleration has a constant magnitude
         // - The velocity vector denotes direction and speed (it's magnitude)
@@ -260,9 +264,6 @@ game_update_and_render(po_context *context, game_input *input)
         velocity_change.x *= -1;
         the_ship.velocity = vector_add(the_ship.velocity, velocity_change);
 
-        // Reset acceleration for the next round
-        // TODO: Avoid having to do this
-        the_ship.acceleration = (vec2){0, thrust_quantity};
     } else {
         // Enforce a gradual decelleration when not under thrust
         if (the_ship.velocity.x != 0 || the_ship.velocity.y != 0) {
@@ -302,6 +303,20 @@ game_update_and_render(po_context *context, game_input *input)
 
     return 0;
 }
+
+void turn_the_ship(size_t n, po_line lines[n], float rad)
+{
+    for (size_t i = 0; i < n; i++)
+    {
+        // TODO: This needs to be arranged so it can be done wide;
+        // multiple rotations at once
+        po_line *line = lines + i;
+        *line = (po_line){.va = vector_rotate(line->va, rad),
+                          .vb = vector_rotate(line->vb, rad),
+                          .thickness = line->thickness};
+    }
+}
+
 
 /* ========================================================================== */
 
