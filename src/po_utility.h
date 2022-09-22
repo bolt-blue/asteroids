@@ -47,21 +47,23 @@ typedef int64_t  i64;
 #define TAIL0(_0, ...) __VA_ARGS__
 
 #ifndef NDEBUG
-#define ASSERT(cond, ...)                                           \
-    if (!(cond)) {                                                  \
-        fprintf(stderr, "[ASSERT] %s:%s:" STRIFY(__LINE__) " "      \
-                STRIFY((cond))  " " HEAD(__VA_ARGS__) "%.0d" "\n",  \
-                __FILE__, __func__,                                 \
-                TAIL(__VA_ARGS__));                                 \
-        *(volatile int *)0 = 0;                                     \
-    }
+#define ASSERT(cond, ...)                                               \
+    do {                                                                \
+        if (!(cond)) {                                                  \
+            fprintf(stderr, "[ASSERT] %s:%s:" STRIFY(__LINE__) " "      \
+                    STRIFY((cond))  " " HEAD(__VA_ARGS__) "%.0d" "\n",  \
+                    __FILE__, __func__,                                 \
+                    TAIL(__VA_ARGS__));                                 \
+            *(volatile int *)0 = 0;                                     \
+        }                                                               \
+    } while (0)
 #else
 #define ASSERT(...)
 #endif
 
 // TODO: Allow logging to file
 #ifndef NTRACE
-#define LOG(T, ...)                                                 \
+#define LOG(T, ...)                                                     \
         fprintf(stderr, "[" T "] "                                      \
                 HEAD(__VA_ARGS__) "%.0d" "\n",                          \
                 TAIL(__VA_ARGS__))
