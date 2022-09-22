@@ -20,6 +20,16 @@ screen (well, in a window on the screen), on various platforms.
 - [xcb](https://xcb.freedesktop.org/)
 
 
+## Build
+
+Currently we're only testing and functioning (within reason) on Linux.
+
+```sh
+$ make
+$ ./build/asteroids
+```
+
+
 ## Cross-Platform Window
 
 We aim to as simply as possible, get a window handle regardless of what
