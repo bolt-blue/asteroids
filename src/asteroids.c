@@ -8,6 +8,9 @@
 // TODO: Switch to using shortened typenames, e.g. u8
 #include <math.h>
 #include <stdint.h>
+#ifndef NDEBUG
+#include <stdio.h>  // For our ASSERT macro only
+#endif
 
 // Dirty unity build
 // TODO: Do incremental compile and link instead ?
@@ -24,6 +27,18 @@
 #define ROUND(v) (int)((float)(v) + 0.5)
 
 /* ========================================================================== */
+
+typedef struct po_stack po_stack;
+struct po_stack {
+    size_t max;
+    size_t top;
+    size_t member_size;
+    int8_t *data;
+};
+
+inline po_stack stack_create(size_t capacity, size_t member_size, po_arena *arena);
+int stack_push(po_stack *stack, void *value);
+void *stack_pop(po_stack *stack);
 
 typedef struct vector2d vec2;
 typedef struct vector2d point2;
@@ -47,6 +62,9 @@ struct po_line {
     point2 vb;
     uint32_t thickness;
 };
+#define CREATE_LINE_STACK(cap, arena_ptr) stack_create((cap), sizeof(po_line), (arena_ptr))
+inline int line_stack_push(po_stack *stack, po_line line);
+inline po_line *line_stack_pop(po_stack *stack);
 
 #define PI 3.14159265358979323846
 #define TWOPI (PI * 2)
@@ -164,6 +182,7 @@ draw_ship(po_surface *surface, po_arena *arena)
                                      surface->width - 1,
                                      0, surface->height - 1,
                                      arena, &segment_count)))
+            // TODO: Log or ?
             return;
 
         for (size_t i = 0; i < segment_count; i++)
@@ -193,6 +212,9 @@ draw_ship(po_surface *surface, po_arena *arena)
             float cur_y = Ay;
 
             for (int i = 0; i < steps; i++) {
+                ASSERT(ROUND(cur_y) * surface->width + ROUND(cur_x) >= 0);
+                ASSERT(ROUND(cur_y) * surface->width + ROUND(cur_x) <
+                        surface->width * surface->height);
                 surface->data[ROUND(cur_y) * surface->width + ROUND(cur_x)] = ship_colour;
                 cur_x += x_step;
                 cur_y += y_step;
@@ -317,6 +339,71 @@ void turn_the_ship(size_t n, po_line lines[n], float rad)
     }
 }
 
+/* ========================================================================== */
+
+po_stack
+stack_create(size_t capacity, size_t member_size, po_arena *arena)
+{
+    po_stack result = (po_stack){.max = capacity, .member_size = member_size,
+        result.data = po_arena_push(capacity * member_size, arena)};
+    return result;
+}
+
+/*
+ * WARNING:
+ * Don't call this with overlapping memory
+ */
+void
+mem_copy(void *dst, void *src, size_t amt)
+{
+    int8_t *dbyte = dst, *sbyte = src;
+    while (amt--)
+    {
+        *dbyte = *sbyte;
+        sbyte++;
+        dbyte++;
+    }
+}
+
+int
+stack_push(po_stack *stack, void *value)
+{
+    // TODO: Maybe we change this in future. For now though, we should only
+    // create and use stacks of known sufficient and manageable sizes
+    ASSERT(stack->top < stack->max);
+    //if (stack->top == stack->max) return 1;
+    size_t pos = stack->top * stack->member_size;
+    mem_copy(&stack->data[pos], value, stack->member_size);
+    stack->top++;
+    return 0;
+}
+
+void *
+stack_pop(po_stack *stack)
+{
+    if (stack->top == 0) return NULL;
+    stack->top--;
+    size_t pos = stack->top * stack->member_size;
+    return &stack->data[pos];
+}
+
+int
+line_stack_push(po_stack *stack, po_line line)
+{
+    // A rudimentary check, but better than nothing I guess
+    ASSERT(stack->member_size == sizeof(line));
+    return stack_push(stack, &line);
+}
+
+/*
+ * WARNING:
+ * The onus in on the caller to call this with an appropriate stack
+ */
+po_line *
+line_stack_pop(po_stack *stack)
+{
+    return (po_line *)stack_pop(stack);
+}
 
 /* ========================================================================== */
 
@@ -329,32 +416,20 @@ enum out_code {
     TOP    = 0x1 << 3
 };
 
-// compute_ the bit code for a point (x, y) using the clip
-// bounded diagonally by (xmin, ymin), and (xmax, ymax)
-
-// ASSUME THAT xmax, xmin, ymax and ymin are global constants.
-internal out_code compute_out_code(int x, int y, int xmin, int xmax, int ymin, int ymax)
+/*
+ * Compute the bit code for a point (x, y) using the clip plane bounded
+ * diagonally by (xmin, ymin), (xmax, ymax)
+ */
+internal out_code
+compute_out_code(int x, int y, int xmin, int xmax, int ymin, int ymax)
 {
     // initialised as being inside of [[clip window]]
     out_code code = INSIDE;
 
-    // TODO: Fix TOP/BOTTOM naming; our y-axis positive direction is down screen
-    // - Need a clean approach to handling this throughout the code
-#if 0
-    if (x < xmin)           // to the left of clip window
-        code |= LEFT;
-    else if (x > xmax)      // to the right of clip window
-        code |= RIGHT;
-    if (y < ymin)           // below the clip window
-        code |= BOTTOM;
-    else if (y > ymax)      // above the clip window
-        code |= TOP;
-#else
     code |= (x < xmin) * LEFT;
     code |= (x > xmax) * RIGHT;
     code |= (y < ymin) * BOTTOM;
     code |= (y > ymax) * TOP;
-#endif
 
     return code;
 }
@@ -364,6 +439,9 @@ internal out_code compute_out_code(int x, int y, int xmin, int xmax, int ymin, i
  *
  * Return:
  * - Array of line segments
+ * - Array length is written to out_count
+ *
+ * TODO: Improve interface
  *
  * Cohen–Sutherland clipping algorithm clips a line from
  * P0 = (x0, y0) to P1 = (x1, y1) against a rectangle with
@@ -375,43 +453,85 @@ po_line *
 line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count)
 {
-    int x0 = line.va.x;
-    int y0 = line.va.y;
-    int x1 = line.vb.x;
-    int y1 = line.vb.y;
+#define SEG_STACK_SZ 3
+    // Under reasonable game conditions, a line may be divided into up to three
+    // segements
+    // NOTE: Sufficiently long lines can cause a crash; we believe only by
+    // trying to write out of bounds (dependent on SEG_STACK_SIZE)
+    // But no reasonable objects in this game should do this
+    po_stack segments = CREATE_LINE_STACK(SEG_STACK_SZ, arena);
+    po_stack safe_segments = CREATE_LINE_STACK(SEG_STACK_SZ, arena);
 
-    // compute out_codes for P0, P1, and whatever point lies outside the clip rectangle
-    out_code out_code0 = compute_out_code(x0, y0, xmin, xmax, ymin, ymax);
-    out_code out_code1 = compute_out_code(x1, y1, xmin, xmax, ymin, ymax);
+    if (!segments.data || !safe_segments.data) {
+        LOG_ERROR("Failed to allocate memory for line division");
+        return NULL;
+    }
 
-    // Under present conditions, a line may become up to three segements
-    // NOTE: We believe it's possible to break things with very long lines, but
-    // no reasonable objects in this game should do this
-    // TODO: Confirm this
-    po_line *segments = po_arena_push(3 * sizeof(po_line), arena);
-    po_memset(segments, 0, 3 * sizeof(po_line));
-    size_t segment_idx = 0;
+    line_stack_push(&segments, line);
 
-    while (TRUE) {
-        if (!(out_code0 | out_code1)) {
-            // Both points are in bounds; trivially exit loop
-            break;
+    po_line *current;
+    out_code out_code0;
+    out_code out_code1;
+
+#define LINE(x0, y0, x1, y1) (po_line){.va.x = (x0), .va.y = (y0), .vb.x = (x1), .vb.y = (y1)}
+#define IN_BOUNDS(i, min, max) ((i) >= (min) && (i) <= (max))
+
+    while ((current = line_stack_pop(&segments)))
+    {
+        int x0 = current->va.x;
+        int y0 = current->va.y;
+        int x1 = current->vb.x;
+        int y1 = current->vb.y;
+
+        // compute out_codes for P0, P1, and whatever point lies outside the clip rectangle
+        out_code0 = compute_out_code(x0, y0, xmin, xmax, ymin, ymax);
+        out_code1 = compute_out_code(x1, y1, xmin, xmax, ymin, ymax);
+
+        if ((out_code0 | out_code1) == INSIDE) {
+            // Both points are inside
+            line_stack_push(&safe_segments, *current);
+            continue;
 
         } else if (out_code0 & out_code1) {
-            // Both points share an outside zone (LEFT, RIGHT, TOP, or BOTTOM),
-            // so both must be out of bounds
+            // Both points are out of bounds and share at least one sector
 
-            // Only exit early if they're both in the same sector
+            // Wrap when segments are both in the same sector
             if (out_code0 == out_code1) {
-                break;
+                po_line wrapped = *current;
+
+                if (out_code0 & TOP) {
+                    wrapped.va.y -= ymax;
+                    wrapped.vb.y -= ymax;
+                } else if (out_code0 & BOTTOM) {
+                    wrapped.va.y += ymax;
+                    wrapped.vb.y += ymax;
+                }
+
+                if (out_code0 & LEFT) {
+                    wrapped.va.x += xmax;
+                    wrapped.vb.x += xmax;
+                } else if (out_code0 & RIGHT) {
+                    wrapped.va.x -= xmax;
+                    wrapped.vb.x -= xmax;
+                }
+
+                // NOTE: Stupid long lines mean we may still need to do more
+                // dividing. Realistically though, this game should be able to
+                // assume the segment is safe at this point
+                line_stack_push(&segments, wrapped);
+
+                continue;
             }
 
-            // We need to divide the segment again, but to do this, at least
-            // one of its points must be INSIDE
-            // To get it back inside we must move it along it's shared segment
+            // The segment is out of bounds and straddling at least one sector
+            // boundary
+            // We need to divide the segment, but to do this, at least one of
+            // its points must be INSIDE
+            // To get it back inside we must move it along it's shared sector
             // axis - e.g. both points share TOP, therefore must be moved along
             // the Y-axis
             out_code shared = out_code0 & out_code1;
+
             switch (shared)
             {
             case TOP:    y0 -= ymax; y1 -= ymax; break;
@@ -421,16 +541,14 @@ line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
             default: break;  // Do nothing
             }
 
-            out_code0 = compute_out_code(x0, y0, xmin, xmax, ymin, ymax);
-            out_code1 = compute_out_code(x1, y1, xmin, xmax, ymin, ymax);
+            line_stack_push(&segments, LINE(x0, y0, x1, y1));
+
             continue;
         }
-        // failed both tests, so calculate the line segment to clip
-        // from an outside point to an intersection with clip edge
-        int x_intersect, y_intersect;
 
         // At least one endpoint is outside the clip rectangle; pick it.
-        out_code out_code_out = out_code1 > out_code0 ? out_code1 : out_code0;
+        out_code out_code_out = out_code0 != INSIDE ? out_code0 : out_code1;
+        int32_t x_intersect = INT32_MAX, y_intersect = INT32_MAX;
 
         // Now find the intersection point;
         // use formulas:
@@ -439,102 +557,55 @@ line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         //   y_intersect = y0 + slope * (xm - x0), where xm is xmin or xmax
         // No need to worry about divide-by-zero because, in each case, the
         // out_code bit being tested guarantees the denominator is non-zero
+        // but we should debug ASSERT to be sure
+        out_code clip_plane = 0;
         if (out_code_out & TOP) {           // point is above the clip window
+            ASSERT((y1 - y0) != 0);
             x_intersect = x0 + (x1 - x0) * (ymax - y0) / (y1 - y0);
             y_intersect = ymax;
+            clip_plane = TOP;
         } else if (out_code_out & BOTTOM) { // point is below the clip window
+            ASSERT((y1 - y0) != 0);
             x_intersect = x0 + (x1 - x0) * (ymin - y0) / (y1 - y0);
             y_intersect = ymin;
+            clip_plane = BOTTOM;
         } else if (out_code_out & RIGHT) {  // point is to the right of clip window
+            ASSERT((x1 - x0) != 0);
             y_intersect = y0 + (y1 - y0) * (xmax - x0) / (x1 - x0);
             x_intersect = xmax;
+            clip_plane = RIGHT;
         } else if (out_code_out & LEFT) {   // point is to the left of clip window
+            ASSERT((x1 - x0) != 0);
             y_intersect = y0 + (y1 - y0) * (xmin - x0) / (x1 - x0);
             x_intersect = xmin;
+            clip_plane = LEFT;
         }
 
-#define LINE(x0, y0, x1, y1) (po_line){.va.x = (x0), .va.y = (y0), .vb.x = (x1), .vb.y = (y1)}
+        ASSERT(x_intersect != INT32_MAX);
+        ASSERT(y_intersect != INT32_MAX);
 
-        // Then clip and re-test the original line
-        // TODO: We probably don't want to handle the screen wrapping here
+        // Divide the line and queue for re-testing
+        // TODO: This introduces an off by one error, in conjunction with the
+        // fact we pass max-inclusive
         if (out_code_out == out_code0) {
-            // Point 0 of the line is out of bounds
-
-            // Store the out of bound segment
-            segments[segment_idx] = LINE(x0, y0, x_intersect, y_intersect);
-            // Move outside point to intersection point to clip
-            x0 = x_intersect;
-            y0 = y_intersect;
-            // Get ready for next pass
-            out_code0 = compute_out_code(x0, y0, xmin, xmax, ymin, ymax);
-
+            // Store both segments for further processing
+            line_stack_push(&segments, LINE(x0, y0,
+                        x_intersect - (1 * clip_plane == LEFT)   + (1 * clip_plane == RIGHT),
+                        y_intersect - (1 * clip_plane == BOTTOM) + (1 * clip_plane == TOP)));
+            line_stack_push(&segments, LINE(x_intersect, y_intersect, x1, y1));
         } else {
-            // Point 1 of the line is out of bounds
-
-            // Store the out of bound segment
-            segments[segment_idx] = LINE(x1, y1, x_intersect, y_intersect);
-            // Move outside point to intersection point to clip
-            x1 = x_intersect;
-            y1 = y_intersect;
-            // Get ready for next pass
-            out_code1 = compute_out_code(x1, y1, xmin, xmax, ymin, ymax);
+            // Store both segments for further processing
+            line_stack_push(&segments, LINE(x1, y1,
+                        x_intersect - (1 * clip_plane == LEFT)   + (1 * clip_plane == RIGHT),
+                        y_intersect - (1 * clip_plane == BOTTOM) + (1 * clip_plane == TOP)));
+            line_stack_push(&segments, LINE(x_intersect, y_intersect, x0, y0));
         }
 
-        // Wrap out of bound segments
-        if (out_code_out & TOP) {
-            segments[segment_idx].va.y -= ymax;
-            segments[segment_idx].vb.y -= ymax;
-        } else if (out_code_out & BOTTOM) {
-            segments[segment_idx].va.y += ymax;
-            segments[segment_idx].vb.y += ymax;
-        }
-
-        if (out_code_out & LEFT) {
-            segments[segment_idx].va.x += xmax;
-            segments[segment_idx].vb.x += xmax;
-        } else if (out_code_out & RIGHT) {
-            segments[segment_idx].va.x -= xmax;
-            segments[segment_idx].vb.x -= xmax;
-        }
-
-        segment_idx++;
     }
 
-    // The segment here is either fully inside or outside the boundaries
-    if (out_code0 == INSIDE) {
-        segments[segment_idx] =
-            (po_line){ .va.x = x0, .va.y = y0, .vb.x = x1, .vb.y = y1};
-    } else {
-        // If the out of bounds line is not in a single sector, we need to
-        // first divide it again
-        if (out_code0 != out_code1) {
-
-        }
-        switch (out_code0)
-        {
-        case TOP: {
-            segments[segment_idx++] = LINE(x0, y0 - ymax, x1, y1 - ymax);
-        } break;
-
-        case BOTTOM: {
-            segments[segment_idx++] = LINE(x0, y0 + ymax, x1, y1 + ymax);
-        } break;
-
-        case LEFT: {
-            segments[segment_idx++] = LINE(x0 + xmax, y0, x1 + xmax, y1);
-        } break;
-
-        case RIGHT: {
-            segments[segment_idx++] = LINE(x0 - xmax, y0, x1 - xmax, y1);
-        } break;
-
-        case INSIDE: {
-            // Do nothing
-        } break;
-        }
-    }
-
-
-    *out_count = segment_idx + 1;
-    return segments;
+    // TODO: This is arguably very janky indeed. To change or not to change?
+    *out_count = safe_segments.top;
+    // Sanity check
+    ASSERT(*out_count <= SEG_STACK_SZ);
+    return (po_line *)safe_segments.data;
 }
