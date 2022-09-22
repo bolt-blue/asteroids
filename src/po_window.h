@@ -64,15 +64,33 @@ struct po_stack {
 
 /* ========================================================================== */
 
-typedef struct po_context po_context;
-struct po_context {
-    po_window *window;
-    po_memory game_memory;
+typedef struct vector2d vec2;
+typedef struct vector2d point2;
+struct vector2d {
+    float x; float y;
+};
+
+typedef struct vector3d vec3;
+struct vector3d {
+    float x; float y; float z;
+};
+
+typedef struct matrix2x2 mat2x2;
+struct matrix2x2 {
+    vec2 a, b;
 };
 
 typedef struct po_pixel po_pixel;
 struct po_pixel {
     uint8_t b, g, r, a;
+};
+
+/* ========================================================================== */
+
+typedef struct po_context po_context;
+struct po_context {
+    po_window *window;
+    po_memory game_memory;
 };
 
 typedef struct input_state po_input_state;
@@ -111,5 +129,12 @@ void po_arena_clear(po_arena *arena);
 po_stack po_stack_create(size_t capacity, size_t member_size, po_arena *arena);
 int po_stack_push(po_stack *stack, void *value);
 void *po_stack_pop(po_stack *stack);
+
+vec2 vector_add(vec2 a, vec2 b);
+vec2 vector_add_scalar(vec2 v, float amount);
+vec2 vector_multiply_scalar(vec2 a, float amount);
+vec2 vector_rotate(vec2 v, float amount);
+vec3 vector_cross(vec2 a, vec2 b);
+float vector_dot(vec2 a, vec2 b);
 
 #endif /* PO_WINDOW_H */

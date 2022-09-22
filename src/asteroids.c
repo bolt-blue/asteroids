@@ -6,7 +6,6 @@
  */
 
 // TODO: Switch to using shortened typenames, e.g. u8
-#include <math.h>
 #include <stdint.h>
 #ifndef NDEBUG
 #include <stdio.h>  // For our ASSERT macro only
@@ -26,23 +25,10 @@
 #define ABS(v) ((v) + ((v) < 0) * -(v) * 2)
 #define ROUND(v) (int)((float)(v) + 0.5)
 
+#define PI 3.14159265358979323846
+#define TWOPI (PI * 2)
+
 /* ========================================================================== */
-
-typedef struct vector2d vec2;
-typedef struct vector2d point2;
-struct vector2d {
-    float x; float y;
-};
-
-typedef struct vector3d vec3;
-struct vector3d {
-    float x; float y; float z;
-};
-
-typedef struct matrix2x2 mat2x2;
-struct matrix2x2 {
-    vec2 a, b;
-};
 
 typedef struct po_line po_line;
 struct po_line {
@@ -50,26 +36,25 @@ struct po_line {
     point2 vb;
     uint32_t thickness;
 };
+
+#define LINE(x0, y0, x1, y1) (po_line){.va.x = (x0), .va.y = (y0), .vb.x = (x1), .vb.y = (y1)}
 #define CREATE_LINE_STACK(cap, arena_ptr) po_stack_create((cap), sizeof(po_line), (arena_ptr))
 inline int line_stack_push(po_stack *stack, po_line line);
 inline po_line *line_stack_pop(po_stack *stack);
-
-#define PI 3.14159265358979323846
-#define TWOPI (PI * 2)
 
 struct ship {
     // TODO: Move to using quaternions at some point
     vec2 position;
     vec2 acceleration;
     vec2 velocity;
-    // theta in radians
-    float heading;
+    float heading;  // Radians
     float previous_heading;
     uint32_t line_count;
     po_line *lines;
 };
 
-struct ship the_ship;
+// DEBUG @tmp
+global struct ship the_ship;
 
 void turn_the_ship(size_t n, po_line lines[n], float rad);
 
@@ -79,57 +64,7 @@ internal po_line *line_divide(po_line line, int xmin, int xmax, int ymin, int ym
 void po_memset(void *mem, int c, size_t n)
 {
     uint8_t *m = mem;
-    while (n--)
-        *m++ = c;
-}
-
-vec2 vector_add(vec2 a, vec2 b);
-vec2 vector_add_scalar(vec2 v, float amount);
-vec2 vector_multiply_scalar(vec2 a, float amount);
-vec2 vector_rotate(vec2 v, float amount);
-vec3 vector_cross(vec2 a, vec2 b);
-float vector_dot(vec2 a, vec2 b);
-
-vec2 vector_add(vec2 a, vec2 b)
-{
-    return (vec2) {a.x + b.x, a.y + b.y};
-}
-vec2 vector_add_scalar(vec2 v, float amount)
-{
-    return (vec2){v.x + amount, v.y + amount};
-}
-vec2 vector_multiply_scalar(vec2 v, float amount)
-{
-    return (vec2){v.x * amount, v.y * amount};
-}
-/*
- * Expects amount in radians
- */
-vec2 vector_rotate(vec2 v, float amount)
-{
-    float sin_amount = sin(amount);
-    float cos_amount = cos(amount);
-    mat2x2 rot = {{cos_amount, -sin_amount},
-                  {sin_amount, cos_amount}};
-    vec2 Vxa = vector_multiply_scalar((vec2){rot.a.x, rot.b.x}, v.x);
-    vec2 Vxb = vector_multiply_scalar((vec2){rot.a.y, rot.b.y}, v.y);
-    return vector_add(Vxa, Vxb);
-}
-/*
- * This is possibly a bit janky
- */
-vec3 vector_cross(vec2 a, vec2 b)
-{
-    float az = 0;
-    float bz = -1;
-    return (vec3){
-        a.y *  bz -  az * b.y,
-         az * b.x - a.x *  bz,
-        a.x * b.y - a.y * b.x};
-}
-float vector_dot(vec2 a, vec2 b)
-{
-    return a.x * b.x + a.y * b.y;
+    while (n--) *m++ = c;
 }
 
 /* ========================================================================== */
@@ -285,6 +220,7 @@ game_update_and_render(po_context *context, game_input *input)
 
     the_ship.position = vector_add(the_ship.velocity, the_ship.position);
 
+    // TODO: Pull this out as soon as we have more objects
     if (the_ship.position.x < 0) {
         int32_t factor = ABS(the_ship.position.x + 0.5) / window->surface->width + 1;
         float new_pos = the_ship.position.x + window->surface->width * factor;
@@ -396,6 +332,8 @@ line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count)
 {
 #define SEG_STACK_SZ 3
+#define IN_BOUNDS(i, min, max) ((i) >= (min) && (i) <= (max))
+
     // Under reasonable game conditions, a line may be divided into up to three
     // segements
     // NOTE: Sufficiently long lines can cause a crash; we believe only by
@@ -414,9 +352,6 @@ line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
     po_line *current;
     out_code out_code0;
     out_code out_code1;
-
-#define LINE(x0, y0, x1, y1) (po_line){.va.x = (x0), .va.y = (y0), .vb.x = (x1), .vb.y = (y1)}
-#define IN_BOUNDS(i, min, max) ((i) >= (min) && (i) <= (max))
 
     while ((current = line_stack_pop(&segments)))
     {

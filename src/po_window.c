@@ -23,3 +23,4 @@
 #endif // Platform
 
 #include "po_stack.c"
+#include "po_vector.c"
