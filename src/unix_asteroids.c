@@ -3,6 +3,7 @@
  *
  */
 
+#include <dlfcn.h>
 #include <stdio.h>
 
 #include "platform.h"
@@ -13,30 +14,62 @@
 // Dirty unity build
 // TODO: Do incremental compile and link instead ?
 #include "platform.c"
-#include "unix_po_arena.c"
 #include "po_window.c"
 
 #include "asteroids.h"
-// DEBUG @tmp
-#include "asteroids.c"
 
 /* ========================================================================== */
 
 #define SCR_WIDTH 1080
 #define SCR_HEIGHT 720
 
+/* ========================================================================== */
+
+typedef struct game_code game_code;
+struct game_code {
+    GameInit *init;
+    GameUpdateAndRender *update_and_render;
+};
+
+internal game_code load_game_code(void);
+internal void unload_game_code(void);
+
+typedef void lib_handle;
+global lib_handle *game_code_lib;
+
+/* ========================================================================== */
+
+/*
+ * Memory Layout
+ *
+ * |=======================|
+ * |      draw buffer      |
+ * |-----------------------|
+ * |                       |
+ * |  persistent storage   |
+ * |                       |
+ * |-----------------------|
+ * |                       |
+ * |   temporary storage   |
+ * |                       |
+ * |=======================|
+ *
+ */
 int main(void)
 {
-    game_memory memory;
-    memory.persistent_memory = po_arena_create(MB(4));
-    memory.temporary_memory = po_arena_create(MB(4));
+    size_t draw_buffer_size = SCR_WIDTH * SCR_HEIGHT * sizeof(po_pixel);
+    size_t persistent_storage_size = MB(4);
+    size_t temporary_storage_size = MB(4);
+    size_t total_size = draw_buffer_size + persistent_storage_size + temporary_storage_size;
 
-    po_window *window = po_arena_push(sizeof(po_window), &memory.persistent_memory);
-    *window = po_window_init(SCR_WIDTH, SCR_HEIGHT, &memory.persistent_memory);
+    po_memory memory = po_map_mem(total_size);
+
+    po_window window = {0};
+    window = po_window_init(SCR_WIDTH, SCR_HEIGHT);
 
     // TODO This check should be handled internally
     // We need a good way to retrieve any error status here
-    if (!window->connection) {
+    if (!window.connection) {
         LOG_ERROR("Failed to initialise our window. Exiting.");
         return 1;
     }
@@ -45,12 +78,16 @@ int main(void)
 
     offscreen_draw_buffer draw_buffer = {
         .width = SCR_WIDTH, .height = SCR_HEIGHT,
-        .data = po_arena_push(SCR_WIDTH * SCR_HEIGHT * sizeof(po_pixel),
-                &memory.persistent_memory)
+        .data = memory.base
     };
 
     // The window directly references the draw buffer
-    window->buffer = draw_buffer.data;
+    window.buffer = draw_buffer.data;
+
+    game_code game = load_game_code();
+
+    void *game_base = memory.base + draw_buffer_size;
+    game.init(game_base, persistent_storage_size, temporary_storage_size, &draw_buffer);
 
     uint8_t done = 0;
     struct timespec begin, end;
@@ -62,11 +99,11 @@ int main(void)
         clock_gettime(CLOCK_MONOTONIC, &begin);
 
         // Process input
-        po_get_input_state(window, &controller_input);
+        po_get_input_state(&window, &controller_input);
         if (controller_input.quit) done = 1;
 
         // TODO: Make use of return value here
-        game_update_and_render(&memory, &controller_input, &draw_buffer);
+        game.update_and_render(game_base, &controller_input, &draw_buffer);
 
         clock_gettime(CLOCK_MONOTONIC, &end);
 
@@ -80,20 +117,54 @@ int main(void)
                     NSTOMS(delta.tv_nsec), NSTOMS(PULSE));
         }
 
+#if 1
         LOG_DEBUG("Trgt: %.2fms | Dt: %5.2fms | Sl: %5.2fms",
                 NSTOMS(PULSE),
                 NSTOMS(delta.tv_nsec),
                 NSTOMS(pause.tv_nsec));
+#endif
 
         nanosleep(&pause, NULL);
 
         // Blit
-        po_render_to_screen(window);
+        po_render_to_screen(&window);
     }
 
     // Clean up
-    po_window_destroy(window);
-    po_arena_destroy(&memory.persistent_memory);
+    // NOTE: Essentially we're only doing this to keep valgrind (et al) happy
+    // TODO: Avoid doing this in production
+    unload_game_code();
+    po_window_destroy(&window);
+    po_unmap_mem(&memory);
 
     return 0;
+}
+
+/* ========================================================================== */
+
+game_code
+load_game_code(void)
+{
+    game_code_lib = dlopen("asteroids.so", RTLD_NOW);
+    if (!game_code_lib) {
+        LOG_ERROR("Failed to load core game code: %s", dlerror());
+    }
+
+    game_code game_lib = {0};
+
+    game_lib.init = (GameInit *)dlsym(game_code_lib, "game_init");
+    game_lib.update_and_render = (GameUpdateAndRender *)dlsym(game_code_lib, "game_update_and_render");
+
+    if (!game_lib.init)
+        game_lib.init = game_init_stub;
+    if (!game_lib.update_and_render)
+        game_lib.update_and_render = game_update_and_render_stub;
+
+    return game_lib;
+}
+
+void
+unload_game_code()
+{
+    dlclose(game_code_lib);
 }

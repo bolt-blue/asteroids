@@ -11,13 +11,12 @@ typedef struct po_arena po_arena;
 struct po_arena {
     uint32_t capacity;
     uint32_t top;
-    uint8_t *data;
+    uint8_t *base;
 };
 
 /* ========================================================================== */
 
-po_arena po_arena_create(size_t size);
-void po_arena_destroy(po_arena *arena);
+po_arena po_arena_init(size_t size, void *base);
 void *po_arena_push(size_t size, po_arena *arena);
 void po_arena_clear(po_arena *arena);
 

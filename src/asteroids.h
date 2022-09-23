@@ -5,7 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "po_arena.h"
 #include "po_window.h"
 
 /* ========================================================================== */
@@ -13,12 +12,6 @@
 #define PULSE THIRTY_FPS
 
 /* ========================================================================== */
-
-typedef struct game_memory game_memory;
-struct game_memory {
-    po_arena persistent_memory;
-    po_arena temporary_memory;
-};
 
 typedef struct offscreen_draw_buffer offscreen_draw_buffer;
 struct offscreen_draw_buffer {
@@ -54,6 +47,22 @@ struct po_context {
 
 /* ========================================================================== */
 
-int game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_buffer *buffer);
+#define GAME_INIT(name) int name(void *memory,                                 \
+        size_t persistent_storage_size, size_t temporary_storage_size,          \
+        const offscreen_draw_buffer *buffer)
+typedef GAME_INIT(GameInit);
+GAME_INIT(game_init_stub)
+{
+    return 0;
+}
+//int game_init(game_memory *memory, offscreen_draw_buffer *buffer);
+
+#define GAME_UPDATE_AND_RENDER(name) int name(void *memory, game_input *input, offscreen_draw_buffer *buffer)
+typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);
+GAME_UPDATE_AND_RENDER(game_update_and_render_stub)
+{
+    return 0;
+}
+//int game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_buffer *buffer);
 
 #endif /* ASTEROIDS_H */

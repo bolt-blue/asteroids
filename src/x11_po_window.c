@@ -1,5 +1,4 @@
 #include "po_window.h"
-#include "po_arena.h"
 
 /* ========================================================================== */
 
@@ -13,7 +12,7 @@
  *
  */
 po_window
-po_window_init(uint16_t width, uint16_t height, po_arena *arena)
+po_window_init(uint16_t width, uint16_t height)
 {
     po_window window = {0};
 

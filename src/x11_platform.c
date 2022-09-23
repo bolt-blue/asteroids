@@ -1,6 +1,7 @@
 #include "platform.h"
 
 #include <stdlib.h>
+#include <sys/mman.h>
 
 /* ========================================================================== */
 
@@ -13,6 +14,27 @@
 #define ESC 0xff1b // keycode 9
 
 /* ========================================================================== */
+
+po_memory po_map_mem(size_t size)
+{
+    // TODO: Map to a consistent base address (at least during development)
+    // It will allow for some useful tooling later
+    po_memory mapped = {.size = size,
+        .base = mmap(0, size,
+            PROT_READ | PROT_WRITE,
+            MAP_ANONYMOUS | MAP_PRIVATE,
+            -1, 0)
+    };
+    return mapped;
+}
+
+void po_unmap_mem(po_memory *memory)
+{
+    if (!memory) return;
+    if (!memory->base) return;
+    munmap(memory->base, memory->size);
+    *memory = (po_memory){0};
+}
 
 /*
  * Record the state of our controller input

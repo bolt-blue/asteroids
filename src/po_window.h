@@ -34,8 +34,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "po_arena.h"
-
 /* ========================================================================== */
 
 // This struct must be defined separately by each platform layer
@@ -52,7 +50,7 @@ struct po_pixel {
 
 /* ========================================================================== */
 
-struct po_window po_window_init(uint16_t width, uint16_t height, po_arena *arena);
+struct po_window po_window_init(uint16_t width, uint16_t height);
 void po_window_destroy(struct po_window *window);
 
 #endif /* PO_WINDOW_H */

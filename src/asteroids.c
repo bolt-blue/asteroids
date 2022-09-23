@@ -7,16 +7,17 @@
 
 // TODO: Switch to using shortened typenames, e.g. u8
 #include <stdint.h>
-#ifndef NDEBUG
-#include <stdio.h>  // For our ASSERT macro only
+#if !defined(NDEBUG) || !defined(NTRACE)
+#include <stdio.h>  // ASSERT, *_LOG
 #endif
 
 #include "asteroids.h"
 
 #include "po_utility.h"
 
-// Dirty unity build
+// Unity build
 // TODO: Do incremental compile and link instead ?
+#include "po_arena.c"
 #include "po_stack.c"
 #include "po_vector.c"
 
@@ -56,8 +57,13 @@ struct ship {
     po_line *lines;
 };
 
-// DEBUG @tmp
-global struct ship the_ship;
+typedef struct game_state game_state;
+struct game_state {
+    struct ship the_ship;
+
+    po_arena persistent_memory;
+    po_arena temporary_memory;
+};
 
 void turn_the_ship(size_t n, po_line lines[n], float rad);
 
@@ -86,7 +92,7 @@ clear_draw_buffer(offscreen_draw_buffer *buffer, po_pixel colour)
 
 // DEBUG @tmp
 void
-draw_ship(offscreen_draw_buffer *buffer, po_arena *arena)
+draw_ship(struct ship the_ship, offscreen_draw_buffer *buffer, po_arena *arena)
 {
     po_pixel ship_colour = {.r = 200, .g = 200, .b = 200};
     for (int i = 0; i < the_ship.line_count; i++)
@@ -147,54 +153,68 @@ draw_ship(offscreen_draw_buffer *buffer, po_arena *arena)
     }
 }
 
-int
-game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_buffer *buffer)
+GAME_INIT(game_init)
 {
-    static float thrust_quantity = 10;
+    // NOTE: All the game needs to know is that the state is at the top of the
+    // raw memory passed from the platform
+    game_state *state = memory;
+
+    state->persistent_memory = po_arena_init(
+            persistent_storage_size - sizeof(game_state),
+            (int8_t *)memory + sizeof(game_state));
+    state->temporary_memory = po_arena_init(
+            temporary_storage_size,
+            (int8_t *)memory + persistent_storage_size);
+
+    float thrust_quantity = 10;
+
+    state->the_ship = (struct ship){.line_count = 5,
+        .lines = po_arena_push(5 * sizeof(po_line), &state->persistent_memory),
+        .position = {.x = buffer->width / 2.0f, .y = buffer->height / 2.0f},
+        .velocity = {0, 0}, .acceleration = {0, thrust_quantity}
+    };
+    // The lines are in local coordinate space, based on the position
+    state->the_ship.lines[0] = (po_line){{  0, -30}, { 20,  20}};
+    state->the_ship.lines[1] = (po_line){{ 20,  20}, {-20,  20}};
+    state->the_ship.lines[2] = (po_line){{-20,  20}, {  0, -30}};
+    state->the_ship.lines[3] = (po_line){{  0,  10}, {  0, -10}};
+    state->the_ship.lines[4] = (po_line){{-10,   0}, { 10,   0}};
+
+    return 0;
+}
+
+GAME_UPDATE_AND_RENDER(game_update_and_render)
+{
+    game_state *state = memory;
+    struct ship *the_ship = &state->the_ship;
+
     static float rotation_factor = 0.1f;
     static float resistance_factor = 0.01f;
     // TODO: Don't just hardcode this; even though we're fixed frame rate?
     static float delta_time = 1.0f / NSTOMS(PULSE);
-
-    // DEBUG @tmp
-    static int first_time = 1;
-    if (first_time) {
-        the_ship = (struct ship){.line_count = 5,
-            .lines = po_arena_push(5 * sizeof(po_line), &memory->persistent_memory),
-            .position = {.x = buffer->width / 2.0f, .y = buffer->height / 2.0f},
-            .velocity = {0, 0}, .acceleration = {0, thrust_quantity}
-        };
-        // The lines are in local coordinate space, based on the position
-        the_ship.lines[0] = (po_line){{  0, -30}, { 20,  20}};
-        the_ship.lines[1] = (po_line){{ 20,  20}, {-20,  20}};
-        the_ship.lines[2] = (po_line){{-20,  20}, {  0, -30}};
-        the_ship.lines[3] = (po_line){{  0,  10}, {  0, -10}};
-        the_ship.lines[4] = (po_line){{-10,   0}, { 10,   0}};
-        first_time = 0;
-    }
 
     po_pixel clear_colour = {30, 30, 30};
     clear_draw_buffer(buffer, clear_colour);
 
     // Move ship
     // TODO: Separate out once things are working nicely
-    the_ship.previous_heading = the_ship.heading;
+    the_ship->previous_heading = the_ship->heading;
     if (input->left.is_down) {
-        the_ship.heading -= rotation_factor;
-        if (the_ship.heading < 0)
-            the_ship.heading += TWOPI;
+        the_ship->heading -= rotation_factor;
+        if (the_ship->heading < 0)
+            the_ship->heading += TWOPI;
     }
     if (input->right.is_down) {
-        the_ship.heading += rotation_factor;
-        if (the_ship.heading >= TWOPI)
-            the_ship.heading -= TWOPI;
+        the_ship->heading += rotation_factor;
+        if (the_ship->heading >= TWOPI)
+            the_ship->heading -= TWOPI;
     }
 
-    if (the_ship.heading != the_ship.previous_heading) {
-        float delta_heading = the_ship.heading - the_ship.previous_heading;
+    if (the_ship->heading != the_ship->previous_heading) {
+        float delta_heading = the_ship->heading - the_ship->previous_heading;
 
-        turn_the_ship(the_ship.line_count, the_ship.lines, delta_heading);
-        the_ship.acceleration = vector_rotate(the_ship.acceleration, delta_heading);
+        turn_the_ship(the_ship->line_count, the_ship->lines, delta_heading);
+        the_ship->acceleration = vector_rotate(the_ship->acceleration, delta_heading);
     }
 
     if (input->thrust.is_down) {
@@ -202,50 +222,50 @@ game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_bu
         // - The acceleration has a constant magnitude
         // - The velocity vector denotes direction and speed (it's magnitude)
         // TODO: Set a terminal velocity - it's technically susceptible to wrapping
-        vec2 velocity_change = vector_multiply_scalar(the_ship.acceleration, delta_time);
+        vec2 velocity_change = vector_multiply_scalar(the_ship->acceleration, delta_time);
         // TODO: Avoid having to negate y everywhere
         velocity_change.y *= -1;
         // TODO: Why do we also have to negate x here?
         velocity_change.x *= -1;
-        the_ship.velocity = vector_add(the_ship.velocity, velocity_change);
+        the_ship->velocity = vector_add(the_ship->velocity, velocity_change);
 
     } else {
         // Enforce a gradual decelleration when not under thrust
-        if (the_ship.velocity.x != 0 || the_ship.velocity.y != 0) {
+        if (the_ship->velocity.x != 0 || the_ship->velocity.y != 0) {
             vec2 resist =
-                vector_multiply_scalar(the_ship.velocity, -1 * resistance_factor);
-            the_ship.velocity = vector_add(the_ship.velocity, resist);
+                vector_multiply_scalar(the_ship->velocity, -1 * resistance_factor);
+            the_ship->velocity = vector_add(the_ship->velocity, resist);
         }
     }
 
-    the_ship.position = vector_add(the_ship.velocity, the_ship.position);
+    the_ship->position = vector_add(the_ship->velocity, the_ship->position);
 
     // TODO: Pull this out as soon as we have more objects
-    if (the_ship.position.x < 0) {
-        int32_t factor = ABS(the_ship.position.x + 0.5) / buffer->width + 1;
-        float new_pos = the_ship.position.x + buffer->width * factor;
-        the_ship.position.x = new_pos;
+    if (the_ship->position.x < 0) {
+        int32_t factor = ABS(the_ship->position.x + 0.5) / buffer->width + 1;
+        float new_pos = the_ship->position.x + buffer->width * factor;
+        the_ship->position.x = new_pos;
     }
-    else if (the_ship.position.x >= buffer->width) {
-        int32_t factor = ABS(the_ship.position.x) / buffer->width;
-        float new_pos = the_ship.position.x - buffer->width * factor;
-        the_ship.position.x = new_pos;
+    else if (the_ship->position.x >= buffer->width) {
+        int32_t factor = ABS(the_ship->position.x) / buffer->width;
+        float new_pos = the_ship->position.x - buffer->width * factor;
+        the_ship->position.x = new_pos;
     }
-    if (the_ship.position.y < 0) {
-        int32_t factor = ABS(the_ship.position.y + 0.5) / buffer->height + 1;
-        float new_pos = the_ship.position.y + buffer->height * factor;
-        the_ship.position.y = new_pos;
+    if (the_ship->position.y < 0) {
+        int32_t factor = ABS(the_ship->position.y + 0.5) / buffer->height + 1;
+        float new_pos = the_ship->position.y + buffer->height * factor;
+        the_ship->position.y = new_pos;
     }
-    else if (the_ship.position.y >= buffer->height) {
-        int32_t factor = ABS(the_ship.position.y) / buffer->height;
-        float new_pos = the_ship.position.y - buffer->height * factor;
-        the_ship.position.y = new_pos;
+    else if (the_ship->position.y >= buffer->height) {
+        int32_t factor = ABS(the_ship->position.y) / buffer->height;
+        float new_pos = the_ship->position.y - buffer->height * factor;
+        the_ship->position.y = new_pos;
     }
 
-    draw_ship(buffer, &memory->temporary_memory);
+    draw_ship(*the_ship, buffer, &state->temporary_memory);
 
     // Clean up for next frame
-    po_arena_clear(&memory->temporary_memory);
+    po_arena_clear(&state->temporary_memory);
 
     return 0;
 }
