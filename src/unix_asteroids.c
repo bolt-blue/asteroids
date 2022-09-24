@@ -31,7 +31,7 @@ struct game_code {
     GameUpdateAndRender *update_and_render;
 };
 
-internal game_code load_game_code(void);
+internal game_code load_game_code(const char *bin_path);
 internal void unload_game_code(void);
 
 typedef void lib_handle;
@@ -55,7 +55,7 @@ global lib_handle *game_code_lib;
  * |=======================|
  *
  */
-int main(void)
+int main(int argc, char **argv)
 {
     size_t draw_buffer_size = SCR_WIDTH * SCR_HEIGHT * sizeof(po_pixel);
     size_t persistent_storage_size = MB(4);
@@ -64,7 +64,7 @@ int main(void)
 
     po_memory memory = po_map_mem(total_size);
 
-    po_window window = {0};
+    po_window window = {};
     window = po_window_init(SCR_WIDTH, SCR_HEIGHT);
 
     // TODO This check should be handled internally
@@ -74,7 +74,7 @@ int main(void)
         return 1;
     }
 
-    game_input controller_input = {0};
+    game_input controller_input = {};
 
     offscreen_draw_buffer draw_buffer = {
         .width = SCR_WIDTH, .height = SCR_HEIGHT,
@@ -84,15 +84,15 @@ int main(void)
     // The window directly references the draw buffer
     window.buffer = draw_buffer.data;
 
-    game_code game = load_game_code();
+    game_code game = load_game_code(argv[0]);
 
-    void *game_base = memory.base + draw_buffer_size;
+    void *game_base = (int8_t *)memory.base + draw_buffer_size;
     game.init(game_base, persistent_storage_size, temporary_storage_size, &draw_buffer);
 
     uint8_t done = 0;
     struct timespec begin, end;
     struct timespec delta;
-    struct timespec pause = {0};
+    struct timespec pause = {};
 
     while (!done)
     {
@@ -142,15 +142,42 @@ int main(void)
 
 /* ========================================================================== */
 
-game_code
-load_game_code(void)
+internal void
+cat_str(size_t read_len_a, const char *src_a,
+        size_t read_len_b, const char *src_b, char *dst)
 {
-    game_code_lib = dlopen("asteroids.so", RTLD_NOW);
+    while (read_len_a--) *dst++ = *src_a++;
+    while (read_len_b--) *dst++ = *src_b++;
+    *dst = '\0';
+}
+
+game_code
+load_game_code(const char *bin_path)
+{
+    const char lib_name[] = "asteroids.so";
+
+    size_t lib_name_len = sizeof(lib_name) - 1;
+    size_t base_path_len = 0;
+
+    for (size_t pos = 0; bin_path[pos]; pos++)
+    {
+        if (bin_path[pos] == '/')
+            base_path_len = pos + 1;
+    }
+
+    size_t full_path_len = base_path_len + lib_name_len;
+    char full_path[full_path_len + 1];
+
+    cat_str(base_path_len, bin_path,
+            lib_name_len, lib_name,
+            full_path);
+
+    game_code_lib = dlopen(full_path, RTLD_NOW);
     if (!game_code_lib) {
         LOG_ERROR("Failed to load core game code: %s", dlerror());
     }
 
-    game_code game_lib = {0};
+    game_code game_lib = {};
 
     game_lib.init = (GameInit *)dlsym(game_code_lib, "game_init");
     game_lib.update_and_render = (GameUpdateAndRender *)dlsym(game_code_lib, "game_update_and_render");
