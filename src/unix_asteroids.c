@@ -142,12 +142,33 @@ int main(int argc, char **argv)
 
 /* ========================================================================== */
 
+/*
+ * Copy read_len_a bytes from src_a followed by read_len_b bytes from src_b
+ * into dst
+ *
+ * It is assumed that dst has sufficient space to store write_len characters
+ * plus one (for the nul terminator)
+ *
+ * The nul terminator will be added after both sources have been concatenated,
+ * or when write_len has been reached, whichever comes first
+ */
 internal void
 cat_str(size_t read_len_a, const char *src_a,
-        size_t read_len_b, const char *src_b, char *dst)
+        size_t read_len_b, const char *src_b,
+        size_t write_len, char *dst)
 {
-    while (read_len_a--) *dst++ = *src_a++;
-    while (read_len_b--) *dst++ = *src_b++;
+    while (read_len_a--)
+    {
+        if (!write_len) break;
+        *dst++ = *src_a++;
+        write_len--;
+    }
+    while (read_len_b--)
+    {
+        if (!write_len) break;
+        *dst++ = *src_b++;
+        write_len--;
+    }
     *dst = '\0';
 }
 
@@ -170,7 +191,7 @@ load_game_code(const char *bin_path)
 
     cat_str(base_path_len, bin_path,
             lib_name_len, lib_name,
-            full_path);
+            full_path_len, full_path);
 
     game_code_lib = dlopen(full_path, RTLD_NOW);
     if (!game_code_lib) {
