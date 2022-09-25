@@ -112,16 +112,18 @@ draw_ship(struct ship the_ship, offscreen_draw_buffer *buffer, po_arena *arena)
 
 GAME_INIT(game_init)
 {
-    // NOTE: All the game needs to know is that the state is at the top of the
-    // raw memory passed from the platform
-    game_state *state = memory;
+    // NOTE: The memory struct gives us the potential to reach back into the
+    // platform layer as and when necessary. For now things are still a little
+    // rough and ready
+    // TODO: Allocate memory from here
+    game_state *state = memory->state = (void *)memory->base;
 
     state->persistent_memory = po_arena_init(
             persistent_storage_size - sizeof(game_state),
-            (int8_t *)memory + sizeof(game_state));
+            memory->base + sizeof(game_state));
     state->temporary_memory = po_arena_init(
             temporary_storage_size,
-            (int8_t *)memory + persistent_storage_size);
+            memory->base + persistent_storage_size);
 
     float thrust_quantity = 10;
 
@@ -142,7 +144,7 @@ GAME_INIT(game_init)
 
 GAME_UPDATE_AND_RENDER(game_update_and_render)
 {
-    game_state *state = memory;
+    game_state *state = memory->state;
     struct ship *the_ship = &state->the_ship;
 
     static float rotation_factor = 0.1f;

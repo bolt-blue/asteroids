@@ -58,6 +58,14 @@ struct po_memory {
     void *base;
 };
 
+typedef struct game_memory game_memory;
+struct game_memory {
+    struct game_state *state;
+
+    // TODO: Platform API function pointers
+    int8_t *base;
+};
+
 /* ========================================================================== */
 
 po_memory po_map_mem(size_t size);
@@ -65,24 +73,21 @@ void po_unmap_mem(po_memory *memory);
 int po_get_input_state(struct po_window *window, game_input *input);
 void po_render_to_screen(po_window *window);
 
-/* ========================================================================== */
-
-#define GAME_INIT(name) int name(void *memory,                                 \
-        size_t persistent_storage_size, size_t temporary_storage_size,          \
+#define GAME_INIT(name) int name(game_memory *memory,                          \
+        size_t persistent_storage_size, size_t temporary_storage_size,         \
         const offscreen_draw_buffer *buffer)
 typedef GAME_INIT(GameInit);
 GAME_INIT(game_init_stub)
 {
     return 0;
 }
-//int game_init(game_memory *memory, offscreen_draw_buffer *buffer);
 
-#define GAME_UPDATE_AND_RENDER(name) int name(void *memory, game_input *input, offscreen_draw_buffer *buffer)
+#define GAME_UPDATE_AND_RENDER(name) int name(game_memory *memory,             \
+        game_input *input, offscreen_draw_buffer *buffer)
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);
 GAME_UPDATE_AND_RENDER(game_update_and_render_stub)
 {
     return 0;
 }
-//int game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_buffer *buffer);
 
 #endif /* PLATFORM_H */

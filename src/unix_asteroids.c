@@ -74,6 +74,7 @@ internal int copy_file(const char *src_path, const char *dst_path);
  */
 int main(int argc, char **argv)
 {
+    // TOOD: Separate out this path malarkey
     char *bin_path = argv[0];
     size_t base_path_len = 0;
     for (size_t pos = 0; bin_path[pos]; pos++)
@@ -131,8 +132,10 @@ int main(int argc, char **argv)
 
     game_code game = load_game_code(lib_path, debug_lib_path);
 
-    void *game_base = (int8_t *)memory.base + draw_buffer_size;
-    game.init(game_base, persistent_storage_size, temporary_storage_size, &draw_buffer);
+    game_memory *game_mem = memory.base + draw_buffer_size;
+    game_mem->base = (int8_t *)game_mem + sizeof(game_memory);
+
+    game.init(game_mem, persistent_storage_size, temporary_storage_size, &draw_buffer);
 
     uint8_t done = 0;
     struct timespec begin, end;
@@ -158,7 +161,7 @@ int main(int argc, char **argv)
         if (controller_input.quit) done = 1;
 
         // TODO: Make use of return value here
-        game.update_and_render(game_base, &controller_input, &draw_buffer);
+        game.update_and_render(game_mem, &controller_input, &draw_buffer);
 
         clock_gettime(CLOCK_MONOTONIC, &end);
 
