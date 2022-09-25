@@ -5,19 +5,19 @@ internal_flag = -DINTERNAL_BUILD
 CC ?= clang
 CFLAGS ?= -Wall -Werror
 
-DBGFLAGS = -g -O0
+DBGFLAGS = -g -ggdb -O0
 CFLAGS += $(DBGFLAGS) $(internal_flag)
 
 unix_LDFLAGS = `pkg-config --libs xcb` `pkg-config --libs xcb-keysyms`
 platform_LDFLAGS = $($(platform)_LDFLAGS)
-core_LDFLAGS += -lm
+core_LDFLAGS = -lm -ldl
 
 srcdir = src
 builddir = build
 
 # TODO: Handle cross-platform building
 app_platform = $(builddir)/$(app_name)
-app_core = $(builddir)/$(app_name).so
+app_core = $(builddir)/build_$(app_name).so
 lib_CFLAGS = -fPIC -shared
 
 .PHONY: all clean compdb
@@ -27,6 +27,7 @@ all: $(app_platform) compdb tags
 $(app_core): $(srcdir)/$(app_name).c $(wildcard $(srcdir)/*.[ch]) | $(builddir)
 	@echo "== Building asteroids core"
 	$(CC) $(CFLAGS) $(lib_CFLAGS) $(core_LDFLAGS) $(LDFLAGS) $< -o $@
+	mv $@ $(subst build_,,$@)
 	@echo ""
 
 $(app_platform): $(srcdir)/$(platform)_$(app_name).c $(app_core) $(wildcard $(srcdir)/*.[ch]) | $(builddir)
