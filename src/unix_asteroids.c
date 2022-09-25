@@ -21,8 +21,6 @@
 #include "platform.c"
 #include "po_window.c"
 
-#include "asteroids.h"
-
 /* ========================================================================== */
 
 #define SCR_WIDTH 1080

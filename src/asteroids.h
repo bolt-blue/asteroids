@@ -2,67 +2,56 @@
 #ifndef ASTEROIDS_H
 #define ASTEROIDS_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include "platform.h"
 
-#include "po_window.h"
-
-/* ========================================================================== */
-
-#define PULSE THIRTY_FPS
+#include "po_stack.h"
+#include "po_types.h"
+#include "po_utility.h"
+#include "po_vector.h"
 
 /* ========================================================================== */
 
-typedef struct offscreen_draw_buffer offscreen_draw_buffer;
-struct offscreen_draw_buffer {
-    size_t width;
-    size_t height;
-    po_pixel *data;
-};
+// WARNING: Don't be silly and pass an expression with side-effects
+// TODO: This should work with negative numbers as well
+#define ABS(v) ((v) + ((v) < 0) * -(v) * 2)
+#define ROUND(v) (int)((float)(v) + 0.5)
 
-typedef struct input_state input_state;
-struct input_state {
-    uint32_t is_down;
-};
-
-typedef struct game_input game_input;
-struct game_input {
-    input_state thrust;
-    input_state left;
-    input_state right;
-    input_state hyper;
-    input_state fire;
-    uint32_t quit;
-};
-
-// The option to pass whole context to game_update_and_render
-#if 0
-typedef struct po_context po_context;
-struct po_context {
-    game_memory memory;
-    game_input input;
-    offscreen_draw_buffer *buffer;
-};
-#endif
+#define PI 3.14159265358979323846
+#define TWOPI (PI * 2)
 
 /* ========================================================================== */
 
-#define GAME_INIT(name) int name(void *memory,                                 \
-        size_t persistent_storage_size, size_t temporary_storage_size,          \
-        const offscreen_draw_buffer *buffer)
-typedef GAME_INIT(GameInit);
-GAME_INIT(game_init_stub)
-{
-    return 0;
-}
-//int game_init(game_memory *memory, offscreen_draw_buffer *buffer);
+typedef struct po_line po_line;
+struct po_line {
+    point2 va;
+    point2 vb;
+    uint32_t thickness;
+};
 
-#define GAME_UPDATE_AND_RENDER(name) int name(void *memory, game_input *input, offscreen_draw_buffer *buffer)
-typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRender);
-GAME_UPDATE_AND_RENDER(game_update_and_render_stub)
-{
-    return 0;
-}
-//int game_update_and_render(game_memory *memory, game_input *input, offscreen_draw_buffer *buffer);
+#define LINE(x0, y0, x1, y1) (po_line){.va.x = (x0), .va.y = (y0), .vb.x = (x1), .vb.y = (y1)}
+#define CREATE_LINE_STACK(cap, arena_ptr) po_stack_create((cap), sizeof(po_line), (arena_ptr))
+inline int line_stack_push(po_stack *stack, po_line line);
+inline po_line *line_stack_pop(po_stack *stack);
+
+typedef struct ship ship;
+struct ship {
+    // TODO: Move to using quaternions at some point
+    vec2 position;
+    vec2 acceleration;
+    vec2 velocity;
+    float heading;  // Radians
+    float previous_heading;
+    uint32_t line_count;
+    po_line *lines;
+};
+
+
+typedef struct game_state game_state;
+struct game_state {
+    ship the_ship;
+
+    po_arena persistent_memory;
+    po_arena temporary_memory;
+};
 
 #endif /* ASTEROIDS_H */

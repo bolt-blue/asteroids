@@ -2,9 +2,10 @@
 #ifndef X11_PO_WINDOW_H
 #define X11_PO_WINDOW_H
 
-#include <stdint.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
+
+#include "po_types.h"
 
 struct po_window {
     uint16_t width;

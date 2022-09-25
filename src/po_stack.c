@@ -1,11 +1,8 @@
-#include <stddef.h>  // size_t
 #ifndef NDEBUG
 #include <stdio.h>   // For our ASSERT macro
 #endif
 
 #include "po_stack.h"
-
-#include "po_arena.h"
 #include "po_utility.h"
 
 internal inline void mem_copy(void *dst, void *src, size_t amt);

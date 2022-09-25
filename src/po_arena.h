@@ -2,8 +2,7 @@
 #ifndef PO_ARENA_H
 #define PO_ARENA_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include "po_types.h"
 
 /* ========================================================================== */
 
@@ -19,5 +18,10 @@ struct po_arena {
 po_arena po_arena_init(size_t size, void *base);
 void *po_arena_push(size_t size, po_arena *arena);
 void po_arena_clear(po_arena *arena);
+
+/* ========================================================================== */
+
+#define PUSH_STRUCT(type, arena) po_arena_push(sizeof(type), arena)
+#define PUSH_ARRAY(type, count, arena) po_arena_push((count) * sizeof(type), arena)
 
 #endif /* PO_ARENA_H */

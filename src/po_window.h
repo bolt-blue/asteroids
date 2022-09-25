@@ -30,9 +30,7 @@
 
 /* ========================================================================== */
 
-// TODO: Use our own size and type definitions ?
-#include <stddef.h>
-#include <stdint.h>
+#include "po_types.h"
 
 /* ========================================================================== */
 
@@ -40,13 +38,6 @@
 // See the above platform-dependent includes
 
 typedef struct po_window po_window;
-
-/* ========================================================================== */
-
-typedef struct po_pixel po_pixel;
-struct po_pixel {
-    uint8_t b, g, r, a;
-};
 
 /* ========================================================================== */
 

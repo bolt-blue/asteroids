@@ -1,7 +1,7 @@
 #include "platform.h"
 
-#include <stdlib.h>
-#include <sys/mman.h>
+#include <stdlib.h>     // free
+#include <sys/mman.h>   // mmap, munmap
 
 /* ========================================================================== */
 

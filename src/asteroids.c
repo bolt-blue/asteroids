@@ -6,14 +6,11 @@
  */
 
 // TODO: Switch to using shortened typenames, e.g. u8
-#include <stdint.h>
 #if !defined(NDEBUG) || !defined(NTRACE)
 #include <stdio.h>  // ASSERT, *_LOG
 #endif
 
 #include "asteroids.h"
-
-#include "po_utility.h"
 
 // Unity build
 // TODO: Do incremental compile and link instead ?
@@ -21,64 +18,24 @@
 #include "po_stack.c"
 #include "po_vector.c"
 
-
 /* ========================================================================== */
 
-// WARNING: Don't be silly and pass an expression with side-effects
-// TODO: This should work with negative numbers as well
-#define ABS(v) ((v) + ((v) < 0) * -(v) * 2)
-#define ROUND(v) (int)((float)(v) + 0.5)
-
-#define PI 3.14159265358979323846
-#define TWOPI (PI * 2)
-
-/* ========================================================================== */
-
-typedef struct po_line po_line;
-struct po_line {
-    point2 va;
-    point2 vb;
-    uint32_t thickness;
-};
-
-#define LINE(x0, y0, x1, y1) (po_line){.va.x = (x0), .va.y = (y0), .vb.x = (x1), .vb.y = (y1)}
-#define CREATE_LINE_STACK(cap, arena_ptr) po_stack_create((cap), sizeof(po_line), (arena_ptr))
-inline int line_stack_push(po_stack *stack, po_line line);
-inline po_line *line_stack_pop(po_stack *stack);
-
-struct ship {
-    // TODO: Move to using quaternions at some point
-    vec2 position;
-    vec2 acceleration;
-    vec2 velocity;
-    float heading;  // Radians
-    float previous_heading;
-    uint32_t line_count;
-    po_line *lines;
-};
-
-typedef struct game_state game_state;
-struct game_state {
-    struct ship the_ship;
-
-    po_arena persistent_memory;
-    po_arena temporary_memory;
-};
-
-void turn_the_ship(size_t n, po_line lines[n], float rad);
+internal void turn_the_ship(size_t n, po_line lines[n], float rad);
 
 internal po_line *line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count);
 
-void po_memset(void *mem, int c, size_t n)
+#if 0
+internal void po_memset(void *mem, int c, size_t n)
 {
     uint8_t *m = mem;
     while (n--) *m++ = c;
 }
+#endif
 
 /* ========================================================================== */
 
-void
+internal void
 clear_draw_buffer(offscreen_draw_buffer *buffer, po_pixel colour)
 {
     po_pixel *cursor = buffer->data;
@@ -270,7 +227,8 @@ GAME_UPDATE_AND_RENDER(game_update_and_render)
     return 0;
 }
 
-void turn_the_ship(size_t n, po_line lines[n], float rad)
+internal void
+turn_the_ship(size_t n, po_line lines[n], float rad)
 {
     for (size_t i = 0; i < n; i++)
     {
@@ -347,7 +305,7 @@ compute_out_code(int x, int y, int xmin, int xmax, int ymin, int ymax)
  * [https://en.wikipedia.org/wiki/Cohen%E2%80%93Sutherland_algorithm]
  *
  */
-po_line *
+internal po_line *
 line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count)
 {

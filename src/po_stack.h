@@ -2,10 +2,8 @@
 #ifndef PO_STACK_H
 #define PO_STACK_H
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include "po_arena.h"
+#include "po_types.h"
 
 /* ========================================================================== */
 
