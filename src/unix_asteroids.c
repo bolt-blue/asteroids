@@ -40,7 +40,7 @@ struct game_code {
 
     lib_handle *game_code_handle;
 #ifdef INTERNAL_BUILD
-    struct timespec game_last_mod_time;
+    ino_t game_lib_inode;
 #endif
 };
 
@@ -50,9 +50,7 @@ internal void cat_str(size_t read_len_a, const char *src_a,
         size_t read_len_b, const char *src_b,
         size_t write_len, char *dst);
 #ifdef INTERNAL_BUILD
-internal inline struct timespec file_mod_time(const char *file_path);
-internal inline bool32 null_time(struct timespec ts);
-internal inline bool32 times_differ(struct timespec a, struct timespec b);
+internal inline ino_t file_inode(const char *file_path);
 internal int copy_file(const char *src_path, const char *dst_path);
 #endif
 
@@ -146,16 +144,10 @@ int main(int argc, char **argv)
         clock_gettime(CLOCK_MONOTONIC, &begin);
 
 #ifdef INTERNAL_BUILD
-        struct timespec game_current_mod_time = file_mod_time(lib_path);
-        if (!null_time(game_current_mod_time)
-                && times_differ(game_current_mod_time, game.game_last_mod_time))
+        ino_t current_game_lib_inode = file_inode(lib_path);
+        if (current_game_lib_inode && current_game_lib_inode != game.game_lib_inode)
         {
-            LOG_DEBUG("=== New game core detected");
-            LOG_DEBUG("    Current: %ld.%ld\n"
-                    "            Last:    %ld.%ld",
-                    game_current_mod_time.tv_sec, game_current_mod_time.tv_nsec,
-                    game.game_last_mod_time.tv_sec, game.game_last_mod_time.tv_nsec);
-
+            LOG_DEBUG("=== New game core detected. Reloading.");
             unload_game_code(&game);
             game = load_game_code(lib_path, debug_lib_path);
         }
@@ -229,7 +221,7 @@ load_game_code(const char *lib_path, const char *debug_lib_path)
         if (game_code_handle)
         {
             LOG_DEBUG("=== Loaded game core\n");
-            game_lib.game_last_mod_time = file_mod_time(lib_path);
+            game_lib.game_lib_inode = file_inode(lib_path);
         }
     }
 #endif
@@ -294,34 +286,16 @@ cat_str(size_t read_len_a, const char *src_a,
 }
 
 #ifdef INTERNAL_BUILD
-internal inline struct timespec
-file_mod_time(const char *file_path)
+internal inline ino_t
+file_inode(const char *file_path)
 {
     struct stat file_stat;
     if (stat(file_path, &file_stat) != 0) {
-        return (struct timespec){};
+        return 0;
     }
-    return file_stat.st_mtim;
+    return file_stat.st_ino;
 }
 
-internal inline bool32
-null_time(struct timespec ts)
-{
-    return (ts.tv_sec == 0 && ts.tv_nsec == 0);
-}
-
-/*
- * Returns
- * 1: When times differ
- * 0: Otherwise
- */
-internal inline bool32
-times_differ(struct timespec a, struct timespec b)
-{
-    return (a.tv_sec != b.tv_sec) || (a.tv_nsec != b.tv_nsec);
-}
-
-#include <errno.h>
 internal int
 copy_file(const char *src_path, const char *dst_path)
 {
