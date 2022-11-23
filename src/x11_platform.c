@@ -15,12 +15,12 @@
 
 /* ========================================================================== */
 
-po_memory po_map_mem(size_t size)
+po_memory po_map_mem(size_t size, void *address)
 {
     // TODO: Map to a consistent base address (at least during development)
     // It will allow for some useful tooling later
     po_memory mapped = {.size = size,
-        .base = mmap(0, size,
+        .base = mmap(address, size,
             PROT_READ | PROT_WRITE,
             MAP_ANONYMOUS | MAP_PRIVATE,
             -1, 0)

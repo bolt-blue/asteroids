@@ -30,6 +30,7 @@ typedef int64_t  i64;
 
 #define KB(v) ((v) * 1024)
 #define MB(v) ((v) * 1024 * 1024)
-#define GB(v) ((v) * 1024 * 1024 * 1024)
+#define GB(v) ((v) * 1024L * 1024 * 1024)
+#define TB(v) ((v) * 1024L * 1024 * 1024 * 1024)
 
 #endif /* PO_TYPES_H */

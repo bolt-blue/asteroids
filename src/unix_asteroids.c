@@ -108,7 +108,14 @@ int main(int argc, char **argv)
     size_t temporary_storage_size = MB(4);
     size_t total_size = draw_buffer_size + persistent_storage_size + temporary_storage_size;
 
-    po_memory memory = po_map_mem(total_size);
+#if INTERNAL_BUILD
+    // For internal development builds we want our memory to be mapped
+    // consistently to the same location
+    // Beneficial for debugging et al
+    po_memory memory = po_map_mem(total_size, (void *)GB(2));
+#else
+    po_memory memory = po_map_mem(total_size, 0);
+#endif
 
     po_window window = {};
     window = po_window_init(SCR_WIDTH, SCR_HEIGHT);
