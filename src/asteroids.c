@@ -20,7 +20,35 @@
 
 /* ========================================================================== */
 
-internal void turn_the_ship(size_t n, po_line lines[n], float rad);
+// Acceleration is a constant factor
+#define THRUST_QTY 10
+
+/*
+ * In the original game, the maximum number of large asteroids that can spawn
+ * on-screen is 10. If all of those were split into medium and then small,
+ * without any being fully vapourised, that gives us a limit of 40 (both large
+ * and medium split into two upon being shot)
+ * NOTE: Given that this is a trivial quantity, we can simply allocate all the
+ * necessary memory, even though it will almost certainly never be fully used
+ */
+#define MAX_ASTEROIDS 40
+
+/*
+ * Back of the napkin calculations for max possible objects on screen:
+ *   40 asteroids
+ *   1 ship
+ *   2 saucers
+ *   9 shots fired (3 from each ship/saucer)
+ * = 52
+ *
+ * TODO: This will need re-evaluating as we go along, at least with regard to
+ * particle effects
+ */
+#define MAX_OBJECTS 64
+
+/* ========================================================================== */
+
+internal void rotate_lines(size_t n, po_line lines[n], float rad);
 
 internal po_line *line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count);
@@ -48,25 +76,26 @@ clear_draw_buffer(offscreen_draw_buffer *buffer, po_pixel colour)
 }
 
 // DEBUG @tmp
-void
-draw_ship(struct ship the_ship, offscreen_draw_buffer *buffer, po_arena *arena)
+internal void
+draw_lines(struct po_line *lines, size_t line_count, vec2 offset,
+        offscreen_draw_buffer *buffer, po_arena *arena)
 {
-    po_pixel ship_colour = {.r = 200, .g = 200, .b = 200};
-    for (int i = 0; i < the_ship.line_count; i++)
+    po_pixel line_colour = {.r = 200, .g = 200, .b = 200};
+    for (int i = 0; i < line_count; i++)
     {
-        po_line line = the_ship.lines[i];
+        po_line line = lines[i];
 
         // Move line to screen space
-        line.va.x += the_ship.position.x;
-        line.va.y += the_ship.position.y;
-        line.vb.x += the_ship.position.x;
-        line.vb.y += the_ship.position.y;
+        line.va.x += offset.x;
+        line.va.y += offset.y;
+        line.vb.x += offset.x;
+        line.vb.y += offset.y;
 
         // Chop up the line if it goes out of bounds
         po_line *segments;
         size_t segment_count;
-        if (!(segments = line_divide(line, 0,
-                                     buffer->width - 1,
+        if (!(segments = line_divide(line,
+                                     0, buffer->width - 1,
                                      0, buffer->height - 1,
                                      arena, &segment_count)))
             // TODO: Log or ?
@@ -84,6 +113,7 @@ draw_ship(struct ship the_ship, offscreen_draw_buffer *buffer, po_arena *arena)
 
             // TODO: Queue all render jobs and do them at once
             // for all objects, not just the ship
+            // Use frame stack allocator
 
             int32_t steps;
             {
@@ -99,16 +129,145 @@ draw_ship(struct ship the_ship, offscreen_draw_buffer *buffer, po_arena *arena)
             float cur_y = Ay;
 
             for (int i = 0; i < steps; i++) {
-                ASSERT(ROUND(cur_y) * buffer->width + ROUND(cur_x) >= 0);
-                ASSERT(ROUND(cur_y) * buffer->width + ROUND(cur_x) <
-                        buffer->width * buffer->height);
-                buffer->data[ROUND(cur_y) * buffer->width + ROUND(cur_x)] = ship_colour;
+                size_t pos = ROUND(cur_y) * buffer->width + ROUND(cur_x);
+                ASSERT(pos >= 0);
+                ASSERT(pos < buffer->width * buffer->height);
+                buffer->data[pos] = line_colour;
                 cur_x += x_step;
                 cur_y += y_step;
             }
         }
     }
 }
+
+/* ========================================================================== */
+
+object_id new_object(vec2 pos, vec2 vel, drawable d, objects_in_space *objects)
+{
+    ASSERT(objects->count < objects->capacity);
+
+    // TODO: Rework to handle objects dieing and being reused
+    object_id id = objects->count;
+
+    objects->positions[id] = pos;
+    objects->velocities[id] = vel;
+    objects->drawables[id] = d;
+
+    objects->count++;
+    return id;
+}
+
+void update_ship(game_state *state, game_input *input, float delta_time)
+{
+    static float rotation_factor = 0.1f;
+    static float resistance_factor = 0.01f;
+
+    struct ship *the_ship = state->the_ship;
+
+    the_ship->previous_heading = the_ship->heading;
+    if (input->left.is_down) {
+        the_ship->heading -= rotation_factor;
+        if (the_ship->heading < 0)
+            the_ship->heading += TWOPI;
+    }
+    if (input->right.is_down) {
+        the_ship->heading += rotation_factor;
+        if (the_ship->heading >= TWOPI)
+            the_ship->heading -= TWOPI;
+    }
+
+    if (the_ship->heading != the_ship->previous_heading) {
+        float delta_heading = the_ship->heading - the_ship->previous_heading;
+
+        // TODO: Do we want to store the rotated lines, or just calculate the
+        // rotation when drawing (like we do with position)?
+        rotate_lines(state->objects->drawables[the_ship->id].line_count,
+                state->objects->drawables[the_ship->id].lines,
+                delta_heading);
+
+        the_ship->acceleration = vector_rotate(the_ship->acceleration, delta_heading);
+    }
+
+    // TODO: Improve interface
+    vec2 *ship_velocity = &state->objects->velocities[state->the_ship->id];
+
+    if (input->thrust.is_down) {
+        // NOTE:
+        // - The acceleration has a constant magnitude
+        // - The velocity vector denotes direction and speed (it's magnitude)
+        // TODO: Set a terminal velocity - it's technically susceptible to wrapping
+        vec2 velocity_change = vector_multiply_scalar(the_ship->acceleration, delta_time);
+        // TODO: Avoid having to negate y everywhere
+        velocity_change.y *= -1;
+        // TODO: Why do we also have to negate x here?
+        velocity_change.x *= -1;
+        *ship_velocity = vector_add(*ship_velocity, velocity_change);
+
+    } else {
+        // Enforce a gradual decelleration when not under thrust
+        if (ship_velocity->x != 0 || ship_velocity->y != 0) {
+            vec2 resist =
+                vector_multiply_scalar(*ship_velocity, -1 * resistance_factor);
+            *ship_velocity = vector_add(*ship_velocity, resist);
+        }
+    }
+}
+
+// TODO: @critical
+// Currently the update functions assume that count objects are stored linearly
+// in memory, but this will not be the case for long.
+// We need a more robust solution
+
+void update_positions(vec2 *positions, vec2 *velocities, u32 count)
+{
+    for (u32 i = 0; i < count; i++)
+    {
+        positions[i] = vector_add(velocities[i], positions[i]);
+    }
+}
+
+void wrap_positions(vec2 *positions, u32 count, offscreen_draw_buffer buffer)
+{
+    for (u32 i = 0; i < count; i++)
+    {
+        vec2 pos = positions[i];
+        // TODO: There has to be a better approach than this
+        if (pos.x < 0) {
+            int32_t factor = ABS(pos.x + 0.5) / buffer.width + 1;
+            float new_pos = pos.x + buffer.width * factor;
+            pos.x = new_pos;
+        }
+        else if (pos.x >= buffer.width) {
+            int32_t factor = ABS(pos.x) / buffer.width;
+            float new_pos = pos.x - buffer.width * factor;
+            pos.x = new_pos;
+        }
+        if (pos.y < 0) {
+            int32_t factor = ABS(pos.y + 0.5) / buffer.height + 1;
+            float new_pos = pos.y + buffer.height * factor;
+            pos.y = new_pos;
+        }
+        else if (pos.y >= buffer.height) {
+            int32_t factor = ABS(pos.y) / buffer.height;
+            float new_pos = pos.y - buffer.height * factor;
+            pos.y = new_pos;
+        }
+    }
+}
+
+void draw_objects(game_state *state, offscreen_draw_buffer *buffer)
+{
+    // TODO: Refactor to have an ordered array of "active" object_id's
+    // This will fail once we start adding, removing, reusing object_id's
+    for (size_t i = 0; i < state->objects->count; i++)
+    {
+        drawable d = state->objects->drawables[i];
+        vec2 p = state->objects->positions[i];
+        draw_lines(d.lines, d.line_count, p, buffer, &state->temporary_memory);
+    }
+}
+
+/* ========================================================================== */
 
 GAME_INIT(game_init)
 {
@@ -125,19 +284,84 @@ GAME_INIT(game_init)
             temporary_storage_size,
             memory->base + persistent_storage_size);
 
-    float thrust_quantity = 10;
+    ship *the_ship = PUSH_STRUCT(ship, &state->persistent_memory);
 
-    state->the_ship = (struct ship){.line_count = 5,
-        .lines = po_arena_push(5 * sizeof(po_line), &state->persistent_memory),
-        .position = {.x = buffer->width / 2.0f, .y = buffer->height / 2.0f},
-        .velocity = {0, 0}, .acceleration = {0, thrust_quantity}
+    asteroid *asteroids = PUSH_ARRAY(asteroid, MAX_ASTEROIDS, &state->persistent_memory);
+    size_t asteroid_count = 3;
+
+    // TODO: Pool allocation for common object data
+    objects_in_space *objects = PUSH_STRUCT(objects_in_space, &state->persistent_memory);
+
+    // For now we just allocate enough memory for each array to hold all
+    // forseeable objects; it's small enough.
+    // This strategy is subject to change depending on what directions get taken
+    // later; e.g. will we find we have occasional or constant need for a lot
+    // more objects?
+    *objects = (objects_in_space){
+        .count = 0,
+        .capacity = MAX_OBJECTS,
+        .positions  = PUSH_ARRAY(vec2, MAX_OBJECTS, &state->persistent_memory),
+        .velocities = PUSH_ARRAY(vec2, MAX_OBJECTS, &state->persistent_memory),
+        .drawables  = PUSH_ARRAY(drawable, MAX_OBJECTS, &state->persistent_memory),
     };
+
+    // TODO: Implement getting a new object_id, etc for ship and asteroids
+
+    *the_ship = (ship){
+        .acceleration = {0, THRUST_QTY},
+        .id = new_object(
+            (vec2){.x = buffer->width / 2.0f, .y = buffer->height / 2.0f},
+            (vec2){0, 0},
+            (drawable){
+                .line_count = 5,
+                .lines = PUSH_ARRAY(po_line, 5, &state->persistent_memory)
+            },
+            objects
+        )
+    };
+
     // The lines are in local coordinate space, based on the position
-    state->the_ship.lines[0] = (po_line){{  0, -30}, { 20,  20}};
-    state->the_ship.lines[1] = (po_line){{ 20,  20}, {-20,  20}};
-    state->the_ship.lines[2] = (po_line){{-20,  20}, {  0, -30}};
-    state->the_ship.lines[3] = (po_line){{  0,  10}, {  0, -10}};
-    state->the_ship.lines[4] = (po_line){{-10,   0}, { 10,   0}};
+    objects->drawables[the_ship->id].lines[0] = (po_line){{  0, -30}, { 20,  20}};
+    objects->drawables[the_ship->id].lines[1] = (po_line){{ 20,  20}, {-20,  20}};
+    objects->drawables[the_ship->id].lines[2] = (po_line){{-20,  20}, {  0, -30}};
+    objects->drawables[the_ship->id].lines[3] = (po_line){{  0,  10}, {  0, -10}};
+    objects->drawables[the_ship->id].lines[4] = (po_line){{-10,   0}, { 10,   0}};
+
+    // DEBUG @tmp
+    for (size_t i = 0; i < asteroid_count; i++)
+    {
+        // TODO:
+        // - Randomised position and velocity
+        // - Shape generation ?
+
+        asteroids[i] = (asteroid){
+            .id = new_object(
+                (vec2){0},
+                (vec2){.x = ((i + 0xdeadbeef) << 33) % 10, .y = ((i + 0xfeedcafe) << 33) % 10},
+                (drawable){
+                    .line_count = 10,
+                    .lines = PUSH_ARRAY(po_line, 10, &state->persistent_memory)
+                },
+                objects
+            )
+        };
+
+        objects->drawables[asteroids[i].id].lines[0] = (po_line){{  0, -17}, { 17, -36}};
+        objects->drawables[asteroids[i].id].lines[1] = (po_line){{ 17, -36}, { 36, -17}};
+        objects->drawables[asteroids[i].id].lines[2] = (po_line){{ 36, -17}, { 26,   0}};
+        objects->drawables[asteroids[i].id].lines[3] = (po_line){{ 26,   0}, { 36,  17}};
+        objects->drawables[asteroids[i].id].lines[4] = (po_line){{ 36,  17}, { 10,  36}};
+        objects->drawables[asteroids[i].id].lines[5] = (po_line){{ 10,  36}, {-17,  36}};
+        objects->drawables[asteroids[i].id].lines[6] = (po_line){{-17,  36}, {-36,  17}};
+        objects->drawables[asteroids[i].id].lines[7] = (po_line){{-36,  17}, {-36, -17}};
+        objects->drawables[asteroids[i].id].lines[8] = (po_line){{-36, -17}, {-17, -36}};
+        objects->drawables[asteroids[i].id].lines[9] = (po_line){{-17, -36}, {  0, -17}};
+    }
+
+    state->the_ship = the_ship;
+    state->asteroids = asteroids;
+    state->asteroid_count = asteroid_count;
+    state->objects = objects;
 
     return 0;
 }
@@ -145,83 +369,22 @@ GAME_INIT(game_init)
 GAME_UPDATE_AND_RENDER(game_update_and_render)
 {
     game_state *state = memory->state;
-    struct ship *the_ship = &state->the_ship;
 
-    static float rotation_factor = 0.1f;
-    static float resistance_factor = 0.01f;
     // TODO: Don't just hardcode this; even though we're fixed frame rate?
     static float delta_time = 1.0f / NSTOMS(PULSE);
 
     po_pixel clear_colour = {30, 30, 30};
     clear_draw_buffer(buffer, clear_colour);
 
-    // Move ship
-    // TODO: Separate out once things are working nicely
-    the_ship->previous_heading = the_ship->heading;
-    if (input->left.is_down) {
-        the_ship->heading -= rotation_factor;
-        if (the_ship->heading < 0)
-            the_ship->heading += TWOPI;
-    }
-    if (input->right.is_down) {
-        the_ship->heading += rotation_factor;
-        if (the_ship->heading >= TWOPI)
-            the_ship->heading -= TWOPI;
-    }
+    update_ship(state, input, delta_time);
 
-    if (the_ship->heading != the_ship->previous_heading) {
-        float delta_heading = the_ship->heading - the_ship->previous_heading;
+    // TODO: delta_time should likely be used here as well
+    update_positions(state->objects->positions, state->objects->velocities,
+            state->objects->count);
 
-        turn_the_ship(the_ship->line_count, the_ship->lines, delta_heading);
-        the_ship->acceleration = vector_rotate(the_ship->acceleration, delta_heading);
-    }
+    wrap_positions(state->objects->positions, state->objects->count, *buffer);
 
-    if (input->thrust.is_down) {
-        // NOTE:
-        // - The acceleration has a constant magnitude
-        // - The velocity vector denotes direction and speed (it's magnitude)
-        // TODO: Set a terminal velocity - it's technically susceptible to wrapping
-        vec2 velocity_change = vector_multiply_scalar(the_ship->acceleration, delta_time);
-        // TODO: Avoid having to negate y everywhere
-        velocity_change.y *= -1;
-        // TODO: Why do we also have to negate x here?
-        velocity_change.x *= -1;
-        the_ship->velocity = vector_add(the_ship->velocity, velocity_change);
-
-    } else {
-        // Enforce a gradual decelleration when not under thrust
-        if (the_ship->velocity.x != 0 || the_ship->velocity.y != 0) {
-            vec2 resist =
-                vector_multiply_scalar(the_ship->velocity, -1 * resistance_factor);
-            the_ship->velocity = vector_add(the_ship->velocity, resist);
-        }
-    }
-
-    the_ship->position = vector_add(the_ship->velocity, the_ship->position);
-
-    // TODO: Pull this out as soon as we have more objects
-    if (the_ship->position.x < 0) {
-        int32_t factor = ABS(the_ship->position.x + 0.5) / buffer->width + 1;
-        float new_pos = the_ship->position.x + buffer->width * factor;
-        the_ship->position.x = new_pos;
-    }
-    else if (the_ship->position.x >= buffer->width) {
-        int32_t factor = ABS(the_ship->position.x) / buffer->width;
-        float new_pos = the_ship->position.x - buffer->width * factor;
-        the_ship->position.x = new_pos;
-    }
-    if (the_ship->position.y < 0) {
-        int32_t factor = ABS(the_ship->position.y + 0.5) / buffer->height + 1;
-        float new_pos = the_ship->position.y + buffer->height * factor;
-        the_ship->position.y = new_pos;
-    }
-    else if (the_ship->position.y >= buffer->height) {
-        int32_t factor = ABS(the_ship->position.y) / buffer->height;
-        float new_pos = the_ship->position.y - buffer->height * factor;
-        the_ship->position.y = new_pos;
-    }
-
-    draw_ship(*the_ship, buffer, &state->temporary_memory);
+    draw_objects(state, buffer);
 
     // Clean up for next frame
     po_arena_clear(&state->temporary_memory);
@@ -230,7 +393,7 @@ GAME_UPDATE_AND_RENDER(game_update_and_render)
 }
 
 internal void
-turn_the_ship(size_t n, po_line lines[n], float rad)
+rotate_lines(size_t n, po_line lines[n], float rad)
 {
     for (size_t i = 0; i < n; i++)
     {
@@ -238,8 +401,7 @@ turn_the_ship(size_t n, po_line lines[n], float rad)
         // multiple rotations at once
         po_line *line = lines + i;
         *line = (po_line){.va = vector_rotate(line->va, rad),
-                          .vb = vector_rotate(line->vb, rad),
-                          .thickness = line->thickness};
+                          .vb = vector_rotate(line->vb, rad)};
     }
 }
 
@@ -311,7 +473,7 @@ internal po_line *
 line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
         po_arena *arena, size_t *out_count)
 {
-#define SEG_STACK_SZ 3
+#define SEG_STACK_SZ 32
 #define IN_BOUNDS(i, min, max) ((i) >= (min) && (i) <= (max))
 
     // Under reasonable game conditions, a line may be divided into up to three
