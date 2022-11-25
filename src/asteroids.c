@@ -46,12 +46,19 @@
  */
 #define MAX_OBJECTS 64
 
+// Under reasonable game conditions, a line may be divided into up to three
+// segements
+// NOTE: Sufficiently long lines can cause a crash; we believe only by
+// trying to write out of bounds (dependent on SEG_STACK_SZ)
+// But no reasonable objects in this game should do this
+#define SEG_STACK_SZ 3
+
 /* ========================================================================== */
 
 internal void rotate_lines(size_t n, po_line lines[n], float rad);
 
-internal po_line *line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
-        po_arena *arena, size_t *out_count);
+internal void line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
+        po_stack *safe_segments);
 
 #if 0
 internal void po_memset(void *mem, int c, size_t n)
@@ -64,78 +71,44 @@ internal void po_memset(void *mem, int c, size_t n)
 /* ========================================================================== */
 
 internal void
-clear_draw_buffer(offscreen_draw_buffer *buffer, po_pixel colour)
-{
-    po_pixel *cursor = buffer->data;
-    po_pixel *end = buffer->data + buffer->width * buffer->height;
-
-    while (cursor != end)
-    {
-        *cursor++ = colour;
-    }
-}
-
-// DEBUG @tmp
-internal void
-draw_lines(struct po_line *lines, size_t line_count, vec2 offset,
-        offscreen_draw_buffer *buffer, po_arena *arena)
+draw_lines(po_line *lines, size_t count, offscreen_draw_buffer *buffer)
 {
     po_pixel line_colour = {.r = 200, .g = 200, .b = 200};
-    for (int i = 0; i < line_count; i++)
+
+    for (size_t i = 0; i < count; i++)
     {
-        po_line line = lines[i];
+        int32_t Ax = lines[i].va.x;
+        int32_t Ay = lines[i].va.y;
+        int32_t Bx = lines[i].vb.x;
+        int32_t By = lines[i].vb.y;
 
-        // Move line to screen space
-        line.va.x += offset.x;
-        line.va.y += offset.y;
-        line.vb.x += offset.x;
-        line.vb.y += offset.y;
+        int32_t dx = Bx - Ax;
+        int32_t dy = By - Ay;
 
-        // Chop up the line if it goes out of bounds
-        po_line *segments;
-        size_t segment_count;
-        if (!(segments = line_divide(line,
-                                     0, buffer->width - 1,
-                                     0, buffer->height - 1,
-                                     arena, &segment_count)))
-            // TODO: Log or ?
-            return;
+        // TODO: Queue all render jobs and do them at once
+        // for all objects, not just the ship
+        // Use frame stack allocator
 
-        for (size_t i = 0; i < segment_count; i++)
+        int32_t steps;
         {
-            int32_t Ax = segments[i].va.x;
-            int32_t Ay = segments[i].va.y;
-            int32_t Bx = segments[i].vb.x;
-            int32_t By = segments[i].vb.y;
+            int32_t abs_dx = ABS(dx);
+            int32_t abs_dy = ABS(dy);
+            steps = abs_dx > abs_dy ? abs_dx : abs_dy;
+        }
 
-            int32_t dx = Bx - Ax;
-            int32_t dy = By - Ay;
+        float x_step = (float)dx / steps;
+        float y_step = (float)dy / steps;
 
-            // TODO: Queue all render jobs and do them at once
-            // for all objects, not just the ship
-            // Use frame stack allocator
+        float cur_x = Ax;
+        float cur_y = Ay;
 
-            int32_t steps;
-            {
-                int32_t abs_dx = ABS(dx);
-                int32_t abs_dy = ABS(dy);
-                steps = abs_dx > abs_dy ? abs_dx : abs_dy;
-            }
-
-            float x_step = (float)dx / steps;
-            float y_step = (float)dy / steps;
-
-            float cur_x = Ax;
-            float cur_y = Ay;
-
-            for (int i = 0; i < steps; i++) {
-                size_t pos = ROUND(cur_y) * buffer->width + ROUND(cur_x);
-                ASSERT(pos >= 0);
-                ASSERT(pos < buffer->width * buffer->height);
-                buffer->data[pos] = line_colour;
-                cur_x += x_step;
-                cur_y += y_step;
-            }
+        for (int i = 0; i < steps; i++) {
+            size_t pos = ROUND(cur_y) * buffer->width + ROUND(cur_x);
+            ASSERT(pos >= 0);
+            ASSERT(pos < buffer->width * buffer->height);
+            buffer->data[pos] = line_colour;
+            cur_x += x_step;
+            cur_y += y_step;
         }
     }
 }
@@ -151,10 +124,23 @@ object_id new_object(vec2 pos, vec2 vel, drawable d, objects_in_space *objects)
 
     objects->positions[id] = pos;
     objects->velocities[id] = vel;
-    objects->drawables[id] = d;
+    objects->shapes[id] = d;
 
     objects->count++;
     return id;
+}
+
+internal void
+clear_draw_buffer(offscreen_draw_buffer *buffer, po_pixel colour)
+{
+    po_pixel *cursor = buffer->data;
+    po_pixel *end = buffer->data + buffer->width * buffer->height;
+
+    // TODO: Do this wide
+    while (cursor != end)
+    {
+        *cursor++ = colour;
+    }
 }
 
 void update_ship(game_state *state, game_input *input, float delta_time)
@@ -181,8 +167,8 @@ void update_ship(game_state *state, game_input *input, float delta_time)
 
         // TODO: Do we want to store the rotated lines, or just calculate the
         // rotation when drawing (like we do with position)?
-        rotate_lines(state->objects->drawables[the_ship->id].line_count,
-                state->objects->drawables[the_ship->id].lines,
+        rotate_lines(state->objects->shapes[the_ship->id].line_count,
+                state->objects->shapes[the_ship->id].lines,
                 delta_heading);
 
         the_ship->acceleration = vector_rotate(the_ship->acceleration, delta_heading);
@@ -255,15 +241,53 @@ void wrap_positions(vec2 *positions, u32 count, offscreen_draw_buffer buffer)
     }
 }
 
-void draw_objects(game_state *state, offscreen_draw_buffer *buffer)
+internal void
+divide_objects(objects_in_space *objects, offscreen_draw_buffer *buffer,
+        po_arena *arena)
+{
+    for (int i = 0; i < objects->count; i++)
+    {
+        po_line *lines = objects->shapes[i].lines;
+        size_t line_count = objects->shapes[i].line_count;
+
+        vec2 offset = objects->positions[i];
+
+        size_t max_segments = SEG_STACK_SZ * line_count;
+        po_stack segments = CREATE_LINE_STACK(max_segments, arena);
+
+        if (!segments.data) {
+            LOG_ERROR("Failed to allocate memory for line division");
+            return;
+        }
+
+        for (int j = 0; j < line_count; j++)
+        {
+            po_line line = lines[j];
+
+            // Move line to screen space
+            line.va.x += offset.x;
+            line.va.y += offset.y;
+            line.vb.x += offset.x;
+            line.vb.y += offset.y;
+
+            // Chop up the line if it goes out of bounds
+            line_divide(line, 0, buffer->width - 1, 0, buffer->height - 1,
+                    &segments);
+        }
+
+        objects->split_shapes[i].lines = (po_line *)segments.data;
+        objects->split_shapes[i].line_count = segments.top;
+    }
+}
+
+void draw_objects(objects_in_space *objects, offscreen_draw_buffer *buffer)
 {
     // TODO: Refactor to have an ordered array of "active" object_id's
     // This will fail once we start adding, removing, reusing object_id's
-    for (size_t i = 0; i < state->objects->count; i++)
+    for (size_t i = 0; i < objects->count; i++)
     {
-        drawable d = state->objects->drawables[i];
-        vec2 p = state->objects->positions[i];
-        draw_lines(d.lines, d.line_count, p, buffer, &state->temporary_memory);
+        drawable d = objects->split_shapes[i];
+        draw_lines(d.lines, d.line_count, buffer);
     }
 }
 
@@ -299,10 +323,11 @@ GAME_INIT(game_init)
     // more objects?
     *objects = (objects_in_space){
         .count = 0,
-        .capacity = MAX_OBJECTS,
-        .positions  = PUSH_ARRAY(vec2, MAX_OBJECTS, &state->persistent_memory),
-        .velocities = PUSH_ARRAY(vec2, MAX_OBJECTS, &state->persistent_memory),
-        .drawables  = PUSH_ARRAY(drawable, MAX_OBJECTS, &state->persistent_memory),
+        .capacity     = MAX_OBJECTS,
+        .positions    = PUSH_ARRAY(vec2, MAX_OBJECTS, &state->persistent_memory),
+        .velocities   = PUSH_ARRAY(vec2, MAX_OBJECTS, &state->persistent_memory),
+        .shapes       = PUSH_ARRAY(drawable, MAX_OBJECTS, &state->persistent_memory),
+        .split_shapes = PUSH_ARRAY(drawable, MAX_OBJECTS, &state->persistent_memory),
     };
 
     // TODO: Implement getting a new object_id, etc for ship and asteroids
@@ -321,11 +346,11 @@ GAME_INIT(game_init)
     };
 
     // The lines are in local coordinate space, based on the position
-    objects->drawables[the_ship->id].lines[0] = (po_line){{  0, -30}, { 20,  20}};
-    objects->drawables[the_ship->id].lines[1] = (po_line){{ 20,  20}, {-20,  20}};
-    objects->drawables[the_ship->id].lines[2] = (po_line){{-20,  20}, {  0, -30}};
-    objects->drawables[the_ship->id].lines[3] = (po_line){{  0,  10}, {  0, -10}};
-    objects->drawables[the_ship->id].lines[4] = (po_line){{-10,   0}, { 10,   0}};
+    objects->shapes[the_ship->id].lines[0] = (po_line){{  0, -30}, { 20,  20}};
+    objects->shapes[the_ship->id].lines[1] = (po_line){{ 20,  20}, {-20,  20}};
+    objects->shapes[the_ship->id].lines[2] = (po_line){{-20,  20}, {  0, -30}};
+    objects->shapes[the_ship->id].lines[3] = (po_line){{  0,  10}, {  0, -10}};
+    objects->shapes[the_ship->id].lines[4] = (po_line){{-10,   0}, { 10,   0}};
 
     // DEBUG @tmp
     for (size_t i = 0; i < asteroid_count; i++)
@@ -346,16 +371,16 @@ GAME_INIT(game_init)
             )
         };
 
-        objects->drawables[asteroids[i].id].lines[0] = (po_line){{  0, -17}, { 17, -36}};
-        objects->drawables[asteroids[i].id].lines[1] = (po_line){{ 17, -36}, { 36, -17}};
-        objects->drawables[asteroids[i].id].lines[2] = (po_line){{ 36, -17}, { 26,   0}};
-        objects->drawables[asteroids[i].id].lines[3] = (po_line){{ 26,   0}, { 36,  17}};
-        objects->drawables[asteroids[i].id].lines[4] = (po_line){{ 36,  17}, { 10,  36}};
-        objects->drawables[asteroids[i].id].lines[5] = (po_line){{ 10,  36}, {-17,  36}};
-        objects->drawables[asteroids[i].id].lines[6] = (po_line){{-17,  36}, {-36,  17}};
-        objects->drawables[asteroids[i].id].lines[7] = (po_line){{-36,  17}, {-36, -17}};
-        objects->drawables[asteroids[i].id].lines[8] = (po_line){{-36, -17}, {-17, -36}};
-        objects->drawables[asteroids[i].id].lines[9] = (po_line){{-17, -36}, {  0, -17}};
+        objects->shapes[asteroids[i].id].lines[0] = (po_line){{  0, -17}, { 17, -36}};
+        objects->shapes[asteroids[i].id].lines[1] = (po_line){{ 17, -36}, { 36, -17}};
+        objects->shapes[asteroids[i].id].lines[2] = (po_line){{ 36, -17}, { 26,   0}};
+        objects->shapes[asteroids[i].id].lines[3] = (po_line){{ 26,   0}, { 36,  17}};
+        objects->shapes[asteroids[i].id].lines[4] = (po_line){{ 36,  17}, { 10,  36}};
+        objects->shapes[asteroids[i].id].lines[5] = (po_line){{ 10,  36}, {-17,  36}};
+        objects->shapes[asteroids[i].id].lines[6] = (po_line){{-17,  36}, {-36,  17}};
+        objects->shapes[asteroids[i].id].lines[7] = (po_line){{-36,  17}, {-36, -17}};
+        objects->shapes[asteroids[i].id].lines[8] = (po_line){{-36, -17}, {-17, -36}};
+        objects->shapes[asteroids[i].id].lines[9] = (po_line){{-17, -36}, {  0, -17}};
     }
 
     state->the_ship = the_ship;
@@ -384,7 +409,9 @@ GAME_UPDATE_AND_RENDER(game_update_and_render)
 
     wrap_positions(state->objects->positions, state->objects->count, *buffer);
 
-    draw_objects(state, buffer);
+    divide_objects(state->objects, buffer, &state->temporary_memory);
+
+    draw_objects(state->objects, buffer);
 
     // Clean up for next frame
     po_arena_clear(&state->temporary_memory);
@@ -469,25 +496,18 @@ compute_out_code(int x, int y, int xmin, int xmax, int ymin, int ymax)
  * [https://en.wikipedia.org/wiki/Cohen%E2%80%93Sutherland_algorithm]
  *
  */
-internal po_line *
-line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
-        po_arena *arena, size_t *out_count)
-{
-#define SEG_STACK_SZ 32
 #define IN_BOUNDS(i, min, max) ((i) >= (min) && (i) <= (max))
-
-    // Under reasonable game conditions, a line may be divided into up to three
-    // segements
-    // NOTE: Sufficiently long lines can cause a crash; we believe only by
-    // trying to write out of bounds (dependent on SEG_STACK_SIZE)
-    // But no reasonable objects in this game should do this
-    po_stack segments = CREATE_LINE_STACK(SEG_STACK_SZ, arena);
-    po_stack safe_segments = CREATE_LINE_STACK(SEG_STACK_SZ, arena);
-
-    if (!segments.data || !safe_segments.data) {
-        LOG_ERROR("Failed to allocate memory for line division");
-        return NULL;
-    }
+internal void
+line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
+        po_stack *safe_segments)
+{
+    // TODO: Clean up - this is just a dirty way to have a local po_stack
+    i8 tmp_mem[SEG_STACK_SZ * sizeof(po_line)];
+    po_stack segments = {
+        .max = SEG_STACK_SZ,
+        .member_size = sizeof(po_line),
+        .data = tmp_mem,
+    };
 
     line_stack_push(&segments, line);
 
@@ -508,7 +528,7 @@ line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
 
         if ((out_code0 | out_code1) == INSIDE) {
             // Both points are inside
-            line_stack_push(&safe_segments, *current);
+            line_stack_push(safe_segments, *current);
             continue;
 
         } else if (out_code0 & out_code1) {
@@ -619,12 +639,6 @@ line_divide(po_line line, int xmin, int xmax, int ymin, int ymax,
                         y_intersect - (1 * clip_plane == BOTTOM) + (1 * clip_plane == TOP)));
             line_stack_push(&segments, LINE(x_intersect, y_intersect, x0, y0));
         }
-
     }
 
-    // TODO: This is arguably very janky indeed. To change or not to change?
-    *out_count = safe_segments.top;
-    // Sanity check
-    ASSERT(*out_count <= SEG_STACK_SZ);
-    return (po_line *)safe_segments.data;
 }

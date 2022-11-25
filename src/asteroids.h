@@ -84,8 +84,12 @@ struct objects_in_space {
     // TODO: Make use of orientation for asteroids as well
     //float *orientations;    // in radians
 
+    // The actual defined shapes - stable across frames
     // TODO: Switch to using VAO's
-    drawable *drawables;
+    drawable *shapes;
+
+    // Per-frame shape segments, potentially split across boundaries
+    drawable *split_shapes;
 };
 
 typedef struct game_state game_state;
