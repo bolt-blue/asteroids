@@ -50,6 +50,7 @@ struct game_input {
     input_state hyper;
     input_state fire;
     uint32_t quit;
+    float dt;  // 1.0 / Frame Hz
 };
 
 typedef struct po_memory po_memory;

@@ -127,7 +127,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    game_input controller_input = {};
+    game_input input = {};
 
     offscreen_draw_buffer draw_buffer = {
         .width = SCR_WIDTH, .height = SCR_HEIGHT,
@@ -145,14 +145,13 @@ int main(int argc, char **argv)
     game.init(game_mem, persistent_storage_size, temporary_storage_size, &draw_buffer);
 
     uint8_t done = 0;
-    struct timespec begin, end;
-    struct timespec delta;
-    struct timespec pause = {};
+    struct timespec last, end;
+    struct timespec delta = {.tv_nsec = PULSE};
+
+    clock_gettime(CLOCK_MONOTONIC, &last);
 
     while (!done)
     {
-        clock_gettime(CLOCK_MONOTONIC, &begin);
-
 #ifdef INTERNAL_BUILD
         ino_t current_game_lib_inode = file_inode(lib_path);
         if (current_game_lib_inode && current_game_lib_inode != game.game_lib_inode)
@@ -164,35 +163,66 @@ int main(int argc, char **argv)
 #endif
 
         // Process input
-        po_get_input_state(&window, &controller_input);
-        if (controller_input.quit) done = 1;
+        input.dt = 1.0f / NSTOMS(delta.tv_nsec);
+        po_get_input_state(&window, &input);
+        if (input.quit) done = 1;
 
         // TODO: Make use of return value here
-        game.update_and_render(game_mem, &controller_input, &draw_buffer);
-
-        clock_gettime(CLOCK_MONOTONIC, &end);
-
-        po_timespec_diff(&end, &begin, &delta);
-        pause.tv_nsec = PULSE - delta.tv_nsec;
-
-        // TODO: During testing, there is a regular period where this gets
-        // triggered. Determine cause and go from there
-        if (delta.tv_nsec > PULSE) {
-            LOG_WARN("Target FPS exceeded! [%.2fms > %.2fms]",
-                    NSTOMS(delta.tv_nsec), NSTOMS(PULSE));
-        }
-
-#if 0
-        LOG_DEBUG("Trgt: %.2fms | Dt: %5.2fms | Sl: %5.2fms",
-                NSTOMS(PULSE),
-                NSTOMS(delta.tv_nsec),
-                NSTOMS(pause.tv_nsec));
-#endif
-
-        nanosleep(&pause, NULL);
+        game.update_and_render(game_mem, &input, &draw_buffer);
 
         // Blit
         po_render_to_screen(&window);
+
+#ifndef FIXED_FRAMERATE
+#define FIXED_FRAMERATE 1
+#endif
+#if FIXED_FRAMERATE
+        struct timespec work_delta;
+        struct timespec pause = {};
+
+        {
+            struct timespec work;
+            struct timespec pause_delta;
+
+            clock_gettime(CLOCK_MONOTONIC, &work);
+            po_timespec_diff(&work, &last, &work_delta);
+
+#if 0
+            LOG_DEBUG("[ WorkDt: %5.2fms ]", NSTOMS(work_delta.tv_nsec));
+#endif
+
+            pause_delta = work_delta;
+
+            if (pause_delta.tv_nsec < PULSE)
+            {
+                // Pause for slightly less than the exact delta
+                pause.tv_nsec = (PULSE - pause_delta.tv_nsec) * 0.98f;
+                nanosleep(&pause, NULL);
+                // Spin for any remaining time
+                while (pause_delta.tv_nsec < PULSE)
+                {
+                    clock_gettime(CLOCK_MONOTONIC, &work);
+                    po_timespec_diff(&work, &last, &pause_delta);
+                }
+            }
+            else
+            {
+                LOG_WARN("Target frame rate exceeded! [%.2fms > %.2fms]",
+                        NSTOMS(delta.tv_nsec), NSTOMS(PULSE));
+            }
+        }
+#endif
+
+        clock_gettime(CLOCK_MONOTONIC, &end);
+        po_timespec_diff(&end, &last, &delta);
+        last = end;
+
+#if 0
+        LOG_DEBUG("[ Target: %.2fms | Sleep: %5.2fms | Delta: %5.2fms ]",
+                NSTOMS(PULSE),
+                NSTOMS(pause.tv_nsec),
+                NSTOMS(delta.tv_nsec));
+#endif
     }
 
     // Clean up

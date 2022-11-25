@@ -396,7 +396,7 @@ GAME_UPDATE_AND_RENDER(game_update_and_render)
     game_state *state = memory->state;
 
     // TODO: Don't just hardcode this; even though we're fixed frame rate?
-    static float delta_time = 1.0f / NSTOMS(PULSE);
+    float delta_time = input->dt;
 
     po_pixel clear_colour = {30, 30, 30};
     clear_draw_buffer(buffer, clear_colour);
