@@ -1,12 +1,17 @@
 app_name = asteroids
 platform = unix
 internal_flag = -DINTERNAL_BUILD
+# Can be debug or release
+build ?= debug
 
 CC ?= clang
-CFLAGS ?= -Wall -Werror
 
-DBGFLAGS = -g -ggdb -O0
-CFLAGS += $(DBGFLAGS) $(internal_flag)
+debug_FLAGS = -g -ggdb -O0 $(internal_flag)
+release_FLAGS = -O2 -DNDEBUG
+BUILD_FLAGS = $($(build)_FLAGS)
+
+CFLAGS ?= -Wall -Werror
+CFLAGS += $(BUILD_FLAGS)
 
 unix_LDFLAGS = `pkg-config --libs xcb` `pkg-config --libs xcb-keysyms`
 platform_LDFLAGS = $($(platform)_LDFLAGS)
