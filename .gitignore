@@ -1,7 +1,0 @@
-build/*
-
-tags
-
-# Linter
-.cache/*
-compile_commands.json
